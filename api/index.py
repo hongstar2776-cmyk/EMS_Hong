@@ -1,35 +1,23 @@
-from flask import Flask, request, send_file
+from flask import Flask, request, jsonify
 from flask_cors import CORS
-import openpyxl
-import io
 
 app = Flask(__name__)
-# GitHub Pages에서 이 API를 호출할 수 있도록 허용(CORS)
+# CORS 설정: 깃허브 페이지(프론트엔드)에서 오는 요청을 허락해줍니다.
 CORS(app) 
 
-@app.route('/api/generate-excel', methods=['POST'])
-def generate_excel():
-    # 1. 프론트엔드에서 보낸 JSON 데이터(주문서) 받기
-    data = request.json
-    items = data.get('items', []) # 예: [{name: "철근", qty: 10, price: 50000}, ...]
+# '/api/export' 라는 주소로 프론트엔드가 데이터를(POST) 보내면 이 함수가 실행됩니다!
+@app.route('/api/export', methods=['POST'])
+def export_excel():
+    try:
+        # 1. 프론트엔드(캔버스의 시스템)에서 보낸 내역서 탭 데이터를 받습니다.
+        received_data = request.json
+        
+        # 2. 버셀 서버 로그에 잘 들어왔는지 출력해봅니다.
+        print("프론트엔드에서 데이터가 잘 도착했습니다!")
+        
+        # 3. 프론트엔드 쪽으로 "통신 성공!"이라는 메시지를 다시 던져줍니다.
+        # (다음 단계에서는 이 부분에 엑셀 23행 분할 파이썬 코드를 넣을 겁니다!)
+        return jsonify({"message": "Vercel API와 성공적으로 연결되었습니다!", "status": "success"}), 200
 
-    # 2. 새로운 엑셀 워크북 만들기 (나중에는 만들어둔 템플릿을 불러올 수도 있습니다)
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "내역서"
-
-    # 3. 엑셀 첫 줄(헤더) 쓰기
-    ws.append(["품명", "수량", "단가", "금액"])
-
-    # 4. 프론트에서 넘어온 데이터 한 줄씩 엑셀에 적기
-    for item in items:
-        # 금액은 수량 * 단가
-        total_price = item['qty'] * item['price']
-        ws.append([item['name'], item['qty'], item['price'], total_price])
-
-    # 5. 완성된 엑셀을 파일 형태로 변환해서 프론트로 보내기 (컴퓨터에 저장하지 않고 메모리에서 바로 전송)
-    out = io.BytesIO()
-    wb.save(out)
-    out.seek(0)
-    
-    return send_file(out, download_name="산출내역서.xlsx", as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
