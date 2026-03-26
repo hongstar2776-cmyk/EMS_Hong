@@ -888,10 +888,56 @@
             document.getElementById('export-modal').classList.add('hidden');
         }
 
-        function executeExport() {
-            // 추후 Vercel API 연동 시 tabsData 전체를 JSON으로 보내는 로직이 들어갈 곳입니다.
-            alert("엑셀 출력 기능은 Vercel API 서버 연동을 위해 현재 미구현 상태입니다.\n(추후 전체 탭 동시 출력 API 업데이트 예정)");
-            closeExportModal();
+        // ===== [수정됨] Vercel API 연동 테스트 코드로 변경 =====
+        async function executeExport() {
+            const exportBtn = document.getElementById('export-btn');
+            const originalText = exportBtn.innerHTML;
+            exportBtn.innerHTML = `
+                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                서버 연결 중...
+            `;
+            exportBtn.disabled = true;
+
+            try {
+                // 1. 현재 화면의 데이터를 안전하게 배열에 저장 (동기화)
+                saveCurrentTabData();
+                
+                // 2. 백엔드로 보낼 데이터 준비 (비어있는 행 제외하고 깔끔하게 정리)
+                const payload = tabsData.map(tab => ({
+                    id: tab.id,
+                    name: tab.name,
+                    data: tab.data.filter(r => r._type === 'data' && (r.category || r.name))
+                }));
+
+                // 3. Vercel API로 데이터 전송 (POST 요청)
+                // 대표님의 Vercel 도메인 주소로 설정했습니다.
+                const response = await fetch('https://ems-hong.vercel.app/api/export', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ tabs: payload })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`서버 오류 발생 (상태 코드: ${response.status})`);
+                }
+
+                // 4. 서버로부터 온 응답 결과 파싱
+                const result = await response.json();
+                
+                // 통신 성공 피드백
+                alert("✅ API 통신 성공!\n\n서버 응답 메시지: " + result.message);
+                closeExportModal();
+
+            } catch (error) {
+                console.error("API 통신 에러:", error);
+                alert("❌ Vercel 서버 통신 실패\n에러 내용: " + error.message + "\n\n(GitHub에 파이썬 파일이 잘 업로드되고 Vercel 배포가 끝났는지 확인해주세요.)");
+            } finally {
+                // 버튼 상태 원상 복구
+                exportBtn.innerHTML = originalText;
+                exportBtn.disabled = false;
+            }
         }
     </script>
 
