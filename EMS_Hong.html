@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>예조종합건설 내역서 관리 시스템</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- ExcelJS & FileSaver (추후 API로 완전 이관 시 삭제 가능) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <!-- Handsontable CSS & JS -->
+    <link href="https://cdn.jsdelivr.net/npm/handsontable@14.0/dist/handsontable.full.min.css" rel="stylesheet" media="screen">
+    <script src="https://cdn.jsdelivr.net/npm/handsontable@14.0/dist/handsontable.full.min.js"></script>
+
+    <!-- Split.js (화면 분할 라이브러리) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/split.js/1.6.5/split.min.js"></script>
+
+    <!-- React & ReactDOM (검색 UI용) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-analytics.js";
+        const firebaseConfig = {
+            apiKey: "AIzaSyBhY5W3WxnSscZjVaXE-dP8NEhmElSirnc",
+            authDomain: "labor-yejo-20260306.firebaseapp.com",
+            projectId: "labor-yejo-20260306",
+            storageBucket: "labor-yejo-20260306.firebasestorage.app",
+            messagingSenderId: "1063955788001",
+            appId: "1:1063955788001:web:401e863f4bce218c3787a0",
+            measurementId: "G-32WLRXQJJG"
+        };
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        window.firebaseApp = app; 
+    </script>
+
+    <style>
+        .hot-container { height: 100%; width: 100%; overflow: hidden; }
+        .htDimmed { background-color: #f3f4f6 !important; color: #374151 !important; font-weight: bold; }
+        .group-header { background-color: #bfdbfe !important; font-weight: bold; color: #1e3a8a !important; }
+        .group-subtotal { background-color: #fef08a !important; font-weight: bold; color: #854d0e !important; }
+        .group-blank { background-color: #f9fafb !important; border-bottom: 2px solid #9ca3af !important; }
+        .modal-enter { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .header-mapper { user-select: none; padding: 2px 0; }
+
+        /* Split.js 핸들(Gutter) 스타일 */
+        .gutter { background-color: #cbd5e1; background-repeat: no-repeat; background-position: 50%; transition: background-color 0.2s; }
+        .gutter.gutter-horizontal { background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjB5IMDAQAMCbG1i9lu18AAAAAElFTkSuQmCC'); cursor: col-resize; }
+        .gutter:hover { background-color: #94a3b8; }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* 탭 스크롤 숨김 */
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col font-sans overflow-hidden">
+
+    <header class="bg-blue-800 text-white p-4 shadow-md flex justify-between items-center z-10 shrink-0">
+        <div>
+            <h1 class="text-xl font-bold">내역서 관리 시스템</h1>
+            <p class="text-sm text-blue-200">멀티 탭 지원 및 일위대가 검색 통합</p>
+        </div>
+        <div class="space-x-2 flex items-center">
+            <button onclick="toggleSearchPanel()" id="btn-toggle-search" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded shadow transition text-sm font-bold flex items-center mr-2">
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                일위대가 검색 열기
+            </button>
+            <button onclick="openModal()" class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded shadow transition text-sm font-semibold">
+                + 엑셀 데이터 붙여넣기
+            </button>
+            <button onclick="openExportModal()" class="bg-indigo-500 hover:bg-indigo-600 px-4 py-2 rounded shadow transition text-sm font-semibold">
+                엑셀로 출력하기
+            </button>
+        </div>
+    </header>
+
+    <!-- 화면 분할 컨테이너 (70% : 30%) -->
+    <div id="main-split-container" class="flex-1 flex overflow-hidden w-full h-full p-2 gap-1 bg-gray-200">
+        
+        <!-- 좌측: 내역서 엑셀 UI -->
+        <div id="left-pane" class="flex flex-col h-full w-full min-w-[500px]">
+            
+            <!-- [NEW] 메인 탭(세트) 컨테이너 -->
+            <div id="main-tabs-container" class="flex space-x-1 mb-2 overflow-x-auto pb-1 shrink-0 scrollbar-hide items-end border-b-2 border-blue-800">
+                <!-- JS에서 동적 렌더링 됨 -->
+            </div>
+
+            <!-- 서브 탭 (합계표/기본내역서) -->
+            <div class="flex space-x-1 mb-1 shrink-0 px-2">
+                <button id="tab-btn-summary" onclick="switchTab('summary')" class="px-6 py-1.5 bg-gray-300 text-gray-600 text-sm rounded-t-lg font-bold hover:bg-gray-200 transition">
+                    공종별합계표
+                </button>
+                <button id="tab-btn-main" onclick="switchTab('main')" class="px-6 py-1.5 bg-white text-blue-800 text-sm rounded-t-lg font-bold shadow-[0_-2px_5px_rgba(0,0,0,0.1)] transition z-10">
+                    기본 내역서
+                </button>
+            </div>
+
+            <div class="bg-white rounded-lg shadow border border-gray-300 flex flex-col flex-1 overflow-hidden">
+                <div id="view-summary" class="hidden flex-1 p-2 relative h-full w-full">
+                    <div id="summary-view" class="hot-container"></div>
+                </div>
+
+                <div id="view-main" class="flex-1 flex flex-col relative h-full w-full">
+                    <div class="bg-gray-100 px-4 py-2 border-b flex justify-between items-center shrink-0">
+                        <span class="text-xs text-gray-600 font-bold flex items-center">
+                            <svg class="w-4 h-4 mr-1 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            기본 내역서 작업 공간
+                        </span>
+                        <button onclick="openBatchModal()" class="px-4 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold rounded shadow transition flex items-center">
+                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                            공종번호 일괄 변경
+                        </button>
+                    </div>
+                    <div class="flex-1 p-2 relative">
+                        <div id="left-view" class="hot-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 우측: 일위대가 검색 통합 UI (React Root) -->
+        <div id="right-pane" class="hidden h-full flex-col bg-white border border-gray-300 rounded-lg shadow relative z-[9999]">
+            <div id="react-search-root" class="h-full w-full overflow-hidden flex flex-col bg-slate-50 text-slate-800 font-sans"></div>
+        </div>
+
+    </div>
+
+    <!-- 모달창 영역 -->
+    <!-- 일괄 변경 모달 -->
+    <div id="batch-change-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[1000] flex justify-center items-center modal-enter">
+        <div class="bg-white w-96 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h2 class="text-lg font-bold text-gray-800">공종번호 일괄 변경</h2>
+                <button onclick="closeBatchModal()" class="text-gray-500 hover:text-red-500 font-bold text-xl">&times;</button>
+            </div>
+            <div class="p-4 flex flex-col space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">변경할 기존 공종번호</label>
+                    <select id="batch-old-category" class="w-full border border-gray-300 rounded px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">새 공종번호 입력</label>
+                    <input type="text" id="batch-new-category" placeholder="새로운 공종번호를 입력하세요" class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div class="p-4 border-t bg-gray-50 flex justify-end space-x-2">
+                <button onclick="closeBatchModal()" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 bg-white transition">취소</button>
+                <button onclick="applyBatchChange()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold shadow transition">
+                    일괄 변경 적용
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 엑셀 붙여넣기 모달 -->
+    <div id="paste-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[1000] flex justify-center items-center modal-enter">
+        <div class="bg-white w-11/12 max-w-6xl h-5/6 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h2 class="text-lg font-bold text-gray-800">엑셀 데이터 붙여넣기 (Ctrl+V)</h2>
+                <button onclick="closeModal()" class="text-gray-500 hover:text-red-500 font-bold text-xl">&times;</button>
+            </div>
+            <div class="p-2 bg-yellow-50 text-sm text-yellow-800 border-b">
+                ※ 엑셀을 붙여넣고 곧바로 [기본 넘기기]를 누르면 현재 <b>활성화된 탭</b>에 자동 계산 및 정렬됩니다.
+            </div>
+            <div class="flex-1 p-4 relative">
+                <div id="modal-view" class="hot-container border border-gray-300"></div>
+            </div>
+            <div class="p-4 border-t bg-gray-50 flex justify-between items-center">
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm font-bold text-gray-700">단가 일괄 증/감액:</span>
+                    <input type="number" id="increase-rate" placeholder="0" class="w-20 px-2 py-1 border border-gray-300 rounded text-right focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <span class="text-sm text-gray-700 font-bold">%</span>
+                    <button onclick="applyDataToLeftWithIncrease()" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-semibold shadow transition">
+                        증액하여 넘기기
+                    </button>
+                </div>
+                <div class="flex space-x-2">
+                    <button onclick="closeModal()" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 bg-white shadow-sm transition">취소</button>
+                    <button onclick="applyDataToLeft(0)" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold shadow transition">
+                        기본 넘기기
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 엑셀 출력 모달 -->
+    <div id="export-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[1000] flex justify-center items-center modal-enter">
+        <div class="bg-white w-96 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h2 class="text-lg font-bold text-gray-800">엑셀 템플릿으로 출력</h2>
+                <button onclick="closeExportModal()" class="text-gray-500 hover:text-red-500 font-bold text-xl">&times;</button>
+            </div>
+            <div class="p-4 flex flex-col space-y-4">
+                <p class="text-sm text-gray-600">서버에 등록된 기본 템플릿을 사용하여 데이터를 출력합니다.</p>
+                <div class="p-3 bg-yellow-50 text-yellow-800 text-xs rounded border border-yellow-200 font-bold">
+                    현재 Vercel API 서버 연동 준비 중입니다.<br/>(추후 모든 탭의 데이터가 한 번에 출력되도록 개발 예정)
+                </div>
+            </div>
+            <div class="p-4 border-t bg-gray-50 flex justify-end space-x-2">
+                <button onclick="closeExportModal()" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 bg-white transition">취소</button>
+                <button onclick="executeExport()" id="export-btn" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-semibold shadow transition flex items-center">
+                    출력하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 탭 삭제 확인 모달 -->
+    <div id="delete-tab-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[1000] flex justify-center items-center modal-enter">
+        <div class="bg-white w-96 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center bg-red-50">
+                <h2 class="text-lg font-bold text-red-800">내역서 탭 삭제</h2>
+                <button onclick="closeDeleteTabModal()" class="text-gray-500 hover:text-red-500 font-bold text-xl">&times;</button>
+            </div>
+            <div class="p-5 flex flex-col space-y-4 text-center">
+                <svg class="w-12 h-12 text-red-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                <p class="text-sm text-gray-700">해당 내역서 세트를 정말 삭제하시겠습니까?</p>
+                <p class="text-xs font-bold text-red-600">삭제된 데이터는 복구할 수 없습니다!</p>
+            </div>
+            <div class="p-4 border-t bg-gray-50 flex justify-end space-x-2">
+                <button onclick="closeDeleteTabModal()" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 bg-white transition">취소</button>
+                <button onclick="executeDeleteTab()" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-semibold shadow transition">
+                    예, 삭제합니다
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <script>
+        const colHeaders = ['공종번호', '품명', '규격', '단위', '수량', '자재단가', '자재금액', '노무단가', '노무금액', '경비단가', '경비금액', '합계단가', '합계금액', '비고'];
+        
+        const columns = [
+            { data: 'category', type: 'text' },
+            { data: 'name', type: 'text' },
+            { data: 'spec', type: 'text' },
+            { data: 'unit', type: 'text' },
+            { data: 'qty', type: 'numeric', numericFormat: { pattern: '0,0.00' } },
+            { data: 'mat_up', type: 'numeric', numericFormat: { pattern: '0,0' } },
+            { data: 'mat_amt', type: 'numeric', numericFormat: { pattern: '0,0' } }, 
+            { data: 'lab_up', type: 'numeric', numericFormat: { pattern: '0,0' } },
+            { data: 'lab_amt', type: 'numeric', numericFormat: { pattern: '0,0' } },
+            { data: 'exp_up', type: 'numeric', numericFormat: { pattern: '0,0' } },
+            { data: 'exp_amt', type: 'numeric', numericFormat: { pattern: '0,0' } },
+            { data: 'tot_up', type: 'numeric', numericFormat: { pattern: '0,0' } },
+            { data: 'tot_amt', type: 'numeric', numericFormat: { pattern: '0,0' } },
+            { data: 'note', type: 'text' }
+        ];
+
+        function safeParseNum(val) {
+            if (val === null || val === undefined || val === '') return 0;
+            if (typeof val === 'string') return parseFloat(val.replace(/,/g, '')) || 0;
+            return parseFloat(val) || 0;
+        }
+
+        // ===== [NEW] 멀티 탭(세트) 관리 로직 =====
+        function generateEmptyData() {
+            return Array(20).fill().map(() => ({ _type: 'data' }));
+        }
+
+        let tabCounter = 1;
+        let activeTabId = 1;
+        // 탭 상태 저장 배열 (각 탭마다 독립된 데이터 보관)
+        let tabsData = [
+            { id: 1, name: '내역서 1', data: generateEmptyData() }
+        ];
+
+        function renderMainTabs() {
+            const container = document.getElementById('main-tabs-container');
+            container.innerHTML = '';
+            
+            tabsData.forEach(tab => {
+                const btn = document.createElement('button');
+                btn.className = `px-5 py-2 text-sm font-bold rounded-t-lg transition flex items-center shrink-0 border border-b-0 ${tab.id === activeTabId ? 'bg-blue-800 text-white border-blue-800 z-10' : 'bg-gray-200 text-gray-600 border-gray-300 hover:bg-gray-100'}`;
+                btn.innerHTML = `
+                    <span class="mr-2">${tab.name}</span>
+                    ${tabsData.length > 1 ? `<span class="text-xs font-normal text-gray-400 hover:text-red-400 cursor-pointer px-1 rounded-full hover:bg-white/20" onclick="event.stopPropagation(); confirmDeleteMainTab(${tab.id})">&times;</span>` : ''}
+                `;
+                btn.onclick = () => switchMainTab(tab.id);
+                container.appendChild(btn);
+            });
+
+            const addBtn = document.createElement('button');
+            addBtn.className = "px-4 py-1.5 text-xs font-bold bg-green-500 text-white rounded shadow hover:bg-green-600 transition shrink-0 ml-2 mb-1 self-end";
+            addBtn.innerText = "+ 탭 추가";
+            addBtn.onclick = addMainTab;
+            container.appendChild(addBtn);
+        }
+
+        function saveCurrentTabData() {
+            const currentTab = tabsData.find(t => t.id === activeTabId);
+            if (currentTab && leftHot) {
+                // 현재 활성화된 Handsontable 데이터를 깊은 복사하여 메모리에 안전하게 저장
+                currentTab.data = JSON.parse(JSON.stringify(leftHot.getSourceData()));
+            }
+        }
+
+        function switchMainTab(id) {
+            if (activeTabId === id) return;
+            
+            saveCurrentTabData(); // 이전 탭 데이터 백업
+            activeTabId = id;
+            const newTab = tabsData.find(t => t.id === id);
+            
+            isReorganizing = true; // 화면 교체 중 불필요한 연산 방지
+            leftHot.loadData(JSON.parse(JSON.stringify(newTab.data)));
+            isReorganizing = false;
+            
+            renderMainTabs();
+            updateSummaryTable(); // 합계표 뷰 갱신
+            switchTab('main'); // 항상 '기본 내역서' 보기로 초기화하여 혼동 방지
+        }
+
+        function addMainTab() {
+            saveCurrentTabData();
+            tabCounter++;
+            tabsData.push({ id: tabCounter, name: `내역서 ${tabCounter}`, data: generateEmptyData() });
+            switchMainTab(tabCounter); // 새로 만든 탭으로 이동
+        }
+
+        let tabToDelete = null;
+
+        function confirmDeleteMainTab(id) {
+            // 마지막 탭은 x버튼 자체가 나타나지 않도록 렌더링되지만, 2차 방어선 마련
+            if (tabsData.length <= 1) return;
+            
+            tabToDelete = id;
+            document.getElementById('delete-tab-modal').classList.remove('hidden');
+        }
+
+        function closeDeleteTabModal() {
+            tabToDelete = null;
+            document.getElementById('delete-tab-modal').classList.add('hidden');
+        }
+
+        function executeDeleteTab() {
+            if (tabToDelete === null) return;
+            const id = tabToDelete;
+            
+            tabsData = tabsData.filter(t => t.id !== id);
+            
+            // 만약 삭제한 탭이 '현재 보고 있는 활성 탭'이라면 첫 번째 탭으로 화면 이동
+            if (activeTabId === id) {
+                switchMainTab(tabsData[0].id);
+            } else {
+                // 활성 탭이 아닌 다른 탭을 삭제했다면 그냥 UI 버튼만 재배치
+                renderMainTabs();
+            }
+            
+            closeDeleteTabModal();
+        }
+
+        // ===== Split.js (화면 분할 제어) =====
+        let splitInstance = null;
+        function toggleSearchPanel() {
+            const rightPane = document.getElementById('right-pane');
+            const btn = document.getElementById('btn-toggle-search');
+            
+            if (rightPane.classList.contains('hidden')) {
+                rightPane.classList.remove('hidden');
+                btn.innerHTML = `<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg> 닫기`;
+                btn.classList.replace('bg-yellow-500', 'bg-gray-500');
+                btn.classList.replace('hover:bg-yellow-600', 'hover:bg-gray-600');
+                
+                splitInstance = Split(['#left-pane', '#right-pane'], {
+                    sizes: [70, 30],
+                    minSize: [500, 350],
+                    gutterSize: 8,
+                    cursor: 'col-resize'
+                });
+            } else {
+                rightPane.classList.add('hidden');
+                btn.innerHTML = `<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg> 일위대가 검색 열기`;
+                btn.classList.replace('bg-gray-500', 'bg-yellow-500');
+                btn.classList.replace('hover:bg-gray-600', 'hover:bg-yellow-600');
+                
+                if (splitInstance) {
+                    splitInstance.destroy();
+                    splitInstance = null;
+                }
+                document.getElementById('left-pane').style.width = '100%';
+            }
+            setTimeout(() => { 
+                if(leftHot) leftHot.render(); 
+                if(summaryHot) summaryHot.render(); 
+            }, 100);
+        }
+
+        // ===== React 앱에서 호출할 데이터 매핑 브릿지 함수 =====
+        window.insertToEstimate = function(item) {
+            if (!leftHot) return;
+
+            let targetRow = -1;
+            const selected = leftHot.getSelectedLast();
+            
+            if (selected) {
+                targetRow = selected[0]; 
+            } else {
+                const data = leftHot.getSourceData();
+                for (let i = 0; i < data.length; i++) {
+                    if (data[i]._type === 'data' && !data[i].category && !data[i].name) {
+                        targetRow = i;
+                        break;
+                    }
+                }
+            }
+
+            if (targetRow === -1) {
+                const data = leftHot.getSourceData();
+                data.push({ _type: 'data' });
+                leftHot.loadData(data);
+                targetRow = data.length - 1;
+            }
+
+            const updates = [
+                [targetRow, 'name', item.name],
+                [targetRow, 'spec', item.standard],
+                [targetRow, 'unit', item.unit],
+                [targetRow, 'qty', 0],
+                [targetRow, 'mat_up', safeParseNum(item.material)],
+                [targetRow, 'lab_up', safeParseNum(item.labor)],
+                [targetRow, 'exp_up', safeParseNum(item.expense)]
+            ];
+            
+            leftHot.setDataAtRowProp(updates, 'search-insert');
+            leftHot.selectCell(targetRow, leftHot.propToCol('qty'));
+            leftHot.scrollViewportTo(targetRow, leftHot.propToCol('qty'));
+        };
+
+
+        // ===== Handsontable 및 기본 UI 로직 =====
+        let isReorganizing = false;
+
+        function switchTab(tab) {
+            const btnSummary = document.getElementById('tab-btn-summary');
+            const btnMain = document.getElementById('tab-btn-main');
+            const viewSummary = document.getElementById('view-summary');
+            const viewMain = document.getElementById('view-main');
+
+            if (tab === 'summary') {
+                btnSummary.className = "px-6 py-1.5 text-sm bg-white text-blue-800 rounded-t-lg font-bold shadow-[0_-2px_5px_rgba(0,0,0,0.1)] transition z-10";
+                btnMain.className = "px-6 py-1.5 text-sm bg-gray-300 text-gray-600 rounded-t-lg font-bold hover:bg-gray-200 transition";
+                viewSummary.classList.remove('hidden');
+                viewMain.classList.add('hidden');
+                if(summaryHot) summaryHot.render();
+            } else {
+                btnMain.className = "px-6 py-1.5 text-sm bg-white text-blue-800 rounded-t-lg font-bold shadow-[0_-2px_5px_rgba(0,0,0,0.1)] transition z-10";
+                btnSummary.className = "px-6 py-1.5 text-sm bg-gray-300 text-gray-600 rounded-t-lg font-bold hover:bg-gray-200 transition";
+                viewMain.classList.remove('hidden');
+                viewSummary.classList.add('hidden');
+                if(leftHot) leftHot.render();
+            }
+        }
+
+        function reorganizeData() {
+            if (isReorganizing) return;
+            isReorganizing = true;
+            
+            const rowCount = leftHot.countRows();
+            const orderedData = [];
+            for(let i=0; i<rowCount; i++) {
+                const physicalRow = leftHot.toPhysicalRow(i);
+                const rowData = leftHot.getSourceDataAtRow(physicalRow);
+                if (rowData) orderedData.push(rowData);
+            }
+
+            const realData = orderedData.filter(r => r._type !== 'header' && r._type !== 'subtotal' && r._type !== 'blank' && (r.category || r.name));
+            realData.forEach(r => r._type = 'data'); 
+
+            const groups = {};
+            const uniqueCategories = new Set();
+            
+            realData.forEach(r => {
+                const cat = (r.category || '').trim() || '미지정'; 
+                uniqueCategories.add(cat);
+                if (!groups[cat]) {
+                    groups[cat] = [];
+                }
+                groups[cat].push(r);
+            });
+
+            const groupOrder = Array.from(uniqueCategories).sort();
+            const newData = [];
+            
+            groupOrder.forEach(cat => {
+                newData.push({ category: cat, name: cat, _type: 'header' });
+                
+                let matAmtTotal = 0, labAmtTotal = 0, expAmtTotal = 0, totAmtTotal = 0;
+
+                groups[cat].forEach(r => {
+                    newData.push(r);
+                    matAmtTotal += parseFloat(r.mat_amt) || 0;
+                    labAmtTotal += parseFloat(r.lab_amt) || 0;
+                    expAmtTotal += parseFloat(r.exp_amt) || 0;
+                    totAmtTotal += parseFloat(r.tot_amt) || 0;
+                });
+
+                newData.push({
+                    category: cat, name: `[${cat} 소계]`,
+                    mat_amt: matAmtTotal, lab_amt: labAmtTotal, exp_amt: expAmtTotal, tot_amt: totAmtTotal,
+                    _type: 'subtotal'
+                });
+
+                newData.push({ _type: 'blank' });
+            });
+
+            for(let i=0; i<15; i++) {
+                newData.push({ _type: 'data' });
+            }
+
+            leftHot.loadData(newData);
+            updateSummaryTable(); 
+            isReorganizing = false;
+        }
+
+        function openBatchModal() {
+            const rowCount = leftHot.countRows();
+            const uniqueCategories = new Set();
+            
+            for(let i=0; i<rowCount; i++) {
+                const physicalRow = leftHot.toPhysicalRow(i);
+                const r = leftHot.getSourceDataAtRow(physicalRow);
+                
+                if (r && r._type === 'data' && (r.category || r.name)) {
+                    const cat = (r.category || '').trim() || '미지정';
+                    uniqueCategories.add(cat);
+                }
+            }
+
+            const select = document.getElementById('batch-old-category');
+            select.innerHTML = '';
+            
+            const sortedCategories = Array.from(uniqueCategories).sort();
+            
+            if (sortedCategories.length === 0) {
+                alert("현재 내역서에 변경할 공종번호가 없습니다.");
+                return;
+            }
+
+            sortedCategories.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat;
+                opt.textContent = cat;
+                select.appendChild(opt);
+            });
+
+            document.getElementById('batch-new-category').value = '';
+            document.getElementById('batch-change-modal').classList.remove('hidden');
+            setTimeout(() => document.getElementById('batch-new-category').focus(), 100);
+        }
+
+        function closeBatchModal() {
+            document.getElementById('batch-change-modal').classList.add('hidden');
+        }
+
+        function applyBatchChange() {
+            const oldCat = document.getElementById('batch-old-category').value;
+            const newCat = document.getElementById('batch-new-category').value.trim();
+
+            if (!newCat) {
+                alert("새로운 공종번호를 입력해주세요.");
+                return;
+            }
+            if (oldCat === newCat) {
+                alert("기존 공종번호와 동일합니다.");
+                return;
+            }
+
+            const rowCount = leftHot.countRows();
+            const updates = [];
+            
+            for(let i=0; i<rowCount; i++) {
+                const physicalRow = leftHot.toPhysicalRow(i);
+                const r = leftHot.getSourceDataAtRow(physicalRow);
+                
+                if (r && r._type === 'data' && (r.category || r.name)) {
+                    const currentCat = (r.category || '').trim() || '미지정';
+                    if (currentCat === oldCat) {
+                        updates.push([i, leftHot.propToCol('category'), newCat]);
+                    }
+                }
+            }
+
+            closeBatchModal();
+
+            if (updates.length > 0) {
+                leftHot.setDataAtCell(updates, 'batch-change');
+            }
+        }
+
+        function updateAllSubtotals() {
+            const data = leftHot.getSourceData();
+            const groups = {};
+            
+            data.forEach(r => {
+                if (r._type === 'data' && r.category) {
+                    if (!groups[r.category]) groups[r.category] = { mat: 0, lab: 0, exp: 0, tot: 0 };
+                    groups[r.category].mat += parseFloat(r.mat_amt) || 0;
+                    groups[r.category].lab += parseFloat(r.lab_amt) || 0;
+                    groups[r.category].exp += parseFloat(r.exp_amt) || 0;
+                    groups[r.category].tot += parseFloat(r.tot_amt) || 0;
+                }
+            });
+
+            const updates = [];
+            data.forEach((r, i) => {
+                if (r._type === 'subtotal' && r.category && groups[r.category]) {
+                    if (r.mat_amt !== groups[r.category].mat) updates.push([i, leftHot.propToCol('mat_amt'), groups[r.category].mat]);
+                    if (r.lab_amt !== groups[r.category].lab) updates.push([i, leftHot.propToCol('lab_amt'), groups[r.category].lab]);
+                    if (r.exp_amt !== groups[r.category].exp) updates.push([i, leftHot.propToCol('exp_amt'), groups[r.category].exp]);
+                    if (r.tot_amt !== groups[r.category].tot) updates.push([i, leftHot.propToCol('tot_amt'), groups[r.category].tot]);
+                }
+            });
+
+            if (updates.length > 0) {
+                leftHot.setDataAtCell(updates, 'calc-subtotal');
+            }
+            updateSummaryTable(); 
+        }
+
+        function updateSummaryTable() {
+            if(!summaryHot) return;
+            const data = leftHot.getSourceData();
+            const summaryData = data.filter(r => r._type === 'subtotal').map(r => ({
+                ...r,
+                name: `[${r.category} 소계]`
+            }));
+            summaryHot.loadData(summaryData);
+        }
+
+        function calculateRow(changes, source) {
+            if (source === 'calc' || source === 'calc-subtotal' || source === 'loadData' || !changes || isReorganizing) return;
+
+            const hot = this; 
+            let calcUpdates = [];
+            let needsReorg = false;
+
+            changes.forEach(([row, prop, oldValue, newValue]) => {
+                if (prop === 'category' && oldValue !== newValue) {
+                    needsReorg = true; 
+                }
+                
+                if (['qty', 'mat_up', 'lab_up', 'exp_up'].includes(prop)) {
+                    const physicalRow = hot.toPhysicalRow(row);
+                    const rowData = hot.getSourceDataAtRow(physicalRow);
+
+                    const qty = safeParseNum(rowData.qty);
+                    const matUP = safeParseNum(rowData.mat_up);
+                    const labUP = safeParseNum(rowData.lab_up);
+                    const expUP = safeParseNum(rowData.exp_up);
+
+                    const matAmt = Math.round(qty * matUP);
+                    const labAmt = Math.round(qty * labUP);
+                    const expAmt = Math.round(qty * expUP);
+                    
+                    const totUP = matUP + labUP + expUP;
+                    const totAmt = matAmt + labAmt + expAmt;
+
+                    calcUpdates.push([row, hot.propToCol('mat_amt'), matAmt]);
+                    calcUpdates.push([row, hot.propToCol('lab_amt'), labAmt]);
+                    calcUpdates.push([row, hot.propToCol('exp_amt'), expAmt]);
+                    calcUpdates.push([row, hot.propToCol('tot_up'), totUP]);
+                    calcUpdates.push([row, hot.propToCol('tot_amt'), totAmt]);
+                }
+            });
+
+            if (calcUpdates.length > 0) {
+                hot.setDataAtCell(calcUpdates, 'calc');
+            }
+
+            if (needsReorg) {
+                setTimeout(() => reorganizeData(), 50);
+            } else {
+                setTimeout(() => updateAllSubtotals(), 50);
+            }
+        }
+
+        // 초기 인스턴스 생성 시 첫 탭 데이터 바인딩
+        let leftHot = new Handsontable(document.getElementById('left-view'), {
+            data: JSON.parse(JSON.stringify(tabsData[0].data)), 
+            colHeaders: colHeaders,
+            columns: columns,
+            rowHeaders: true,
+            manualRowMove: true, 
+            contextMenu: ['row_above', 'row_below', 'remove_row', 'undo', 'redo', 'copy', 'cut'],
+            manualColumnResize: true,
+            licenseKey: 'non-commercial-and-evaluation',
+            afterChange: calculateRow,
+            
+            afterRemoveRow: function(index, amount, physicalRows, source) {
+                if(source !== 'loadData') {
+                    setTimeout(() => reorganizeData(), 50);
+                }
+            },
+            
+            afterRowMove: function(movedRows, finalIndex, dropIndex, movePossible, orderChanged) {
+                if (orderChanged) {
+                    setTimeout(() => reorganizeData(), 50);
+                }
+            },
+            cells: function(row, col, prop) {
+                var cellProperties = {};
+                var physicalRow = this.instance.toPhysicalRow(row);
+                var rowData = this.instance.getSourceDataAtRow(physicalRow);
+                
+                if (!rowData) return cellProperties;
+
+                if (rowData._type === 'header') {
+                    cellProperties.readOnly = true; 
+                    cellProperties.className = 'group-header';
+                } else if (rowData._type === 'subtotal') {
+                    cellProperties.readOnly = true;
+                    cellProperties.className = 'group-subtotal'; 
+                } else if (rowData._type === 'blank') {
+                    cellProperties.readOnly = true;
+                    cellProperties.className = 'group-blank';
+                } else {
+                    if (['mat_amt', 'lab_amt', 'exp_amt', 'tot_up', 'tot_amt'].includes(prop)) {
+                        cellProperties.readOnly = true;
+                        cellProperties.className = 'htDimmed';
+                    }
+                }
+                return cellProperties;
+            },
+            width: '100%',
+            height: '100%',
+            stretchH: 'all',
+        });
+
+        let summaryHot = new Handsontable(document.getElementById('summary-view'), {
+            data: [], 
+            colHeaders: colHeaders,
+            columns: columns,
+            rowHeaders: true,
+            readOnly: true, 
+            contextMenu: false,
+            manualColumnResize: true,
+            licenseKey: 'non-commercial-and-evaluation',
+            cells: function(row, col, prop) {
+                var cellProperties = {};
+                cellProperties.className = 'htDimmed group-subtotal'; 
+                return cellProperties;
+            },
+            width: '100%',
+            height: '100%',
+            stretchH: 'all',
+        });
+
+        const pasteOptions = [
+            {val: '', text: '(제외)'},
+            {val: 'category', text: '공종번호'}, 
+            {val: 'name', text: '품명'}, 
+            {val: 'spec', text: '규격'}, 
+            {val: 'unit', text: '단위'},
+            {val: 'qty', text: '수량'}, 
+            {val: 'mat_up', text: '자재단가'}, 
+            {val: 'lab_up', text: '노무단가'},
+            {val: 'exp_up', text: '경비단가'},
+            {val: 'note', text: '비고'}
+        ];
+
+        let columnMapping = ['category', 'name', 'spec', 'unit', 'qty', 'mat_up', '', 'lab_up', '', 'exp_up', '', '', '', ''];
+
+        window.updateMapping = function(colIndex, value) {
+            columnMapping[colIndex] = value;
+        };
+
+        let modalHot = new Handsontable(document.getElementById('modal-view'), {
+            data: Handsontable.helper.createEmptySpreadsheetData(50, 14),
+            rowHeaders: true,
+            colWidths: 100,
+            manualColumnResize: true,
+            licenseKey: 'non-commercial-and-evaluation',
+            colHeaders: function(col) {
+                let optionsHtml = pasteOptions.map(opt => 
+                    `<option value="${opt.val}" ${columnMapping[col] === opt.val ? 'selected' : ''}>${opt.text}</option>`
+                ).join('');
+                return `
+                    <div class="header-mapper" onmousedown="event.stopPropagation()">
+                        <select onchange="updateMapping(${col}, this.value)" class="text-xs border border-gray-300 p-1 rounded w-full cursor-pointer text-gray-700 bg-white">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                `;
+            }
+        });
+
+        // 탭 UI 초기 렌더링 및 첫 데이터 정렬
+        renderMainTabs();
+        setTimeout(() => {
+            reorganizeData();
+        }, 100);
+
+        function openModal() {
+            document.getElementById('paste-modal').classList.remove('hidden');
+            modalHot.render();
+        }
+        function closeModal() {
+            document.getElementById('paste-modal').classList.add('hidden');
+        }
+
+        function applyDataToLeft(increaseRate = 0) {
+            const sourceData = modalHot.getSourceData();
+            const mappedData = [];
+            const multiplier = 1 + (increaseRate / 100);
+
+            sourceData.forEach(row => {
+                if (row.every(cell => cell === null || cell === '')) return;
+
+                let newRowObj = { _type: 'data' };
+                
+                columnMapping.forEach((targetProp, sourceCol) => {
+                    if (targetProp !== '') {
+                        let val = row[sourceCol];
+                        if (['qty', 'mat_up', 'mat_amt', 'lab_up', 'lab_amt', 'exp_up', 'exp_amt', 'tot_up', 'tot_amt'].includes(targetProp)) {
+                            val = safeParseNum(val);
+                        }
+                        newRowObj[targetProp] = val;
+                    }
+                });
+
+                if (newRowObj.category || newRowObj.name) {
+                    const qty = safeParseNum(newRowObj.qty);
+                    let matUP = safeParseNum(newRowObj.mat_up);
+                    let labUP = safeParseNum(newRowObj.lab_up);
+                    let expUP = safeParseNum(newRowObj.exp_up);
+
+                    if (increaseRate !== 0) {
+                        matUP = Math.floor(matUP * multiplier);
+                        labUP = Math.floor(labUP * multiplier);
+                        expUP = Math.floor(expUP * multiplier);
+                        
+                        newRowObj.mat_up = matUP;
+                        newRowObj.lab_up = labUP;
+                        newRowObj.exp_up = expUP;
+                    }
+
+                    newRowObj.mat_amt = Math.round(qty * matUP);
+                    newRowObj.lab_amt = Math.round(qty * labUP);
+                    newRowObj.exp_amt = Math.round(qty * expUP);
+                    newRowObj.tot_up = matUP + labUP + expUP;
+                    newRowObj.tot_amt = newRowObj.mat_amt + newRowObj.lab_amt + newRowObj.exp_amt;
+
+                    mappedData.push(newRowObj);
+                }
+            });
+
+            if (mappedData.length > 0) {
+                const currentData = leftHot.getSourceData().filter(r => r._type !== 'header' && r._type !== 'subtotal' && r._type !== 'blank' && (r.category || r.name));
+                leftHot.loadData([...currentData, ...mappedData]);
+                reorganizeData();
+            }
+
+            modalHot.loadData(Handsontable.helper.createEmptySpreadsheetData(50, 14));
+            document.getElementById('increase-rate').value = '';
+            closeModal();
+        }
+
+        function applyDataToLeftWithIncrease() {
+            const rateInput = document.getElementById('increase-rate').value;
+            const rate = parseFloat(rateInput) || 0;
+            if (rate === 0) {
+                if (!confirm("입력된 비율이 0%입니다. 금액 변경 없이 이대로 넘기시겠습니까?")) return;
+            }
+            applyDataToLeft(rate);
+        }
+
+        function openExportModal() {
+            document.getElementById('export-modal').classList.remove('hidden');
+        }
+        function closeExportModal() {
+            document.getElementById('export-modal').classList.add('hidden');
+        }
+
+        function executeExport() {
+            // 추후 Vercel API 연동 시 tabsData 전체를 JSON으로 보내는 로직이 들어갈 곳입니다.
+            alert("엑셀 출력 기능은 Vercel API 서버 연동을 위해 현재 미구현 상태입니다.\n(추후 전체 탭 동시 출력 API 업데이트 예정)");
+            closeExportModal();
+        }
+    </script>
+
+    <!-- ========================================== -->
+    <!-- 2. React UI 로직 영역 (일위대가 검색 패널) -->
+    <!-- ========================================== -->
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+        const db = new Dexie("ConstructionCostDB");
+        db.version(3).stores({
+            unitPriceList: '++id, code, searchIndex',
+            unitPriceDetail: '++id, parentCode'
+        });
+
+        function App() {
+            const [activeTab, setActiveTab] = useState('search');
+            const [isDbReady, setIsDbReady] = useState(false);
+            const [loadingMessage, setLoadingMessage] = useState('');
+            const [keyword, setKeyword] = useState('');
+            const [searchResults, setSearchResults] = useState([]);
+            const [isSearching, setIsSearching] = useState(false);
+            
+            const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+            const [selectedItem, setSelectedItem] = useState(null);
+            const [relatedDetails, setRelatedDetails] = useState([]);
+            const selectedRowRef = useRef(null);
+
+            const formatNumber = (val) => {
+                if (!val) return '0';
+                const num = Number(val.toString().replace(/,/g, ''));
+                if (isNaN(num)) return val;
+                return num.toLocaleString('ko-KR');
+            };
+
+            const parseNumber = (val) => {
+                if (!val) return 0;
+                const num = Number(val.toString().replace(/,/g, ''));
+                return isNaN(num) ? 0 : num;
+            };
+
+            const detailTotals = useMemo(() => {
+                let mat = 0, lab = 0, exp = 0, tot = 0;
+                relatedDetails.forEach(det => {
+                    mat += parseNumber(det.matAmt);
+                    lab += parseNumber(det.labAmt);
+                    exp += parseNumber(det.expAmt);
+                    tot += parseNumber(det.totAmt);
+                });
+                return { mat, lab, exp, tot };
+            }, [relatedDetails]);
+
+            const [colWidths, setColWidths] = useState({
+                category: 60, name: 200, standard: 150, unit: 60, material: 80, labor: 80, expense: 80, total: 90
+            });
+            const resizingCol = useRef(null);
+            const startX = useRef(0);
+            const startWidth = useRef(0);
+
+            const handleResizeStart = (e, colKey) => {
+                e.preventDefault(); e.stopPropagation();
+                resizingCol.current = colKey;
+                startX.current = e.pageX;
+                startWidth.current = colWidths[colKey];
+                
+                const handleMouseMove = (moveEvent) => {
+                    if (!resizingCol.current) return;
+                    const diffX = moveEvent.pageX - startX.current;
+                    const newWidth = Math.max(40, startWidth.current + diffX);
+                    setColWidths(prev => ({ ...prev, [resizingCol.current]: newWidth }));
+                };
+                const handleMouseUp = () => {
+                    resizingCol.current = null;
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                };
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+            };
+
+            const tableWidth = colWidths.category + colWidths.name + colWidths.standard + colWidths.unit + colWidths.material + colWidths.labor + colWidths.expense + colWidths.total;
+
+            useEffect(() => {
+                const init = async () => {
+                    const count = await db.unitPriceList.count();
+                    if (count > 0) setIsDbReady(true);
+                    else syncFromGithub(true);
+                };
+                init();
+            }, []);
+
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (activeTab !== 'search' || searchResults.length === 0 || isDetailModalOpen) return;
+                    
+                    const activeTag = document.activeElement.tagName.toLowerCase();
+                    const isInsideHandsontable = document.activeElement.closest('.handsontable');
+                    if (activeTag === 'input' || activeTag === 'textarea' || isInsideHandsontable) return;
+                    
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        if (!selectedItem) setSelectedItem(searchResults[0]);
+                        else {
+                            const currentIndex = searchResults.findIndex(item => item.id === selectedItem.id);
+                            if (currentIndex >= 0 && currentIndex < searchResults.length - 1) setSelectedItem(searchResults[currentIndex + 1]);
+                        }
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        if (selectedItem) {
+                            const currentIndex = searchResults.findIndex(item => item.id === selectedItem.id);
+                            if (currentIndex > 0) setSelectedItem(searchResults[currentIndex - 1]);
+                        }
+                    } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (selectedItem) handleItemDoubleClick(selectedItem);
+                    }
+                };
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [activeTab, searchResults, selectedItem, isDetailModalOpen]);
+
+            useEffect(() => {
+                if (selectedRowRef.current && !isDetailModalOpen) {
+                    selectedRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }, [selectedItem]);
+
+            const checkDbStatus = async () => {
+                const count = await db.unitPriceList.count();
+                if (count > 0) setIsDbReady(true);
+            };
+
+            const processRowData = (tableName, row) => {
+                if (tableName === 'unitPriceList') {
+                    if (row[0] === '코  드' || row[1] === '일 위 대 가 목 록' || String(row[1]).includes('25-군 공통')) return null;
+                    if (!row[0]) return null;
+                    const rawRefNumber = row[8] ? String(row[8]).trim() : '';
+                    const category = rawRefNumber ? rawRefNumber.substring(0, 2) : '';
+                    return {
+                        code: String(row[0]).trim(), name: row[1] || '', standard: row[2] || '', unit: row[3] || '',
+                        material: row[4] || '0', labor: row[5] || '0', expense: row[6] || '0', total: row[7] || '0',
+                        refNumber: rawRefNumber, category: category, remark: row[9] || '', searchIndex: row.join(' ').toLowerCase()
+                    };
+                } else if (tableName === 'unitPriceDetail') {
+                    if (row[0] === '품      명' || String(row[0]).includes('25-군 공통') || row[4] === '단  가') return null;
+                    if (!row[13] || String(row[13]).trim() === '') return null;
+                    return {
+                        name: row[0] || '', standard: row[1] || '', unit: row[2] || '', quantity: row[3] || '',
+                        matPrice: row[4] || '0', matAmt: row[5] || '0', labPrice: row[6] || '0', labAmt: row[7] || '0',
+                        expPrice: row[8] || '0', expAmt: row[9] || '0', totPrice: row[10] || '0', totAmt: row[11] || '0',
+                        parentCode: String(row[13]).trim()
+                    };
+                }
+                return null;
+            };
+
+            const syncFromGithub = async (isAuto = false) => {
+                if (!isAuto && !confirm("GitHub에서 최신 데이터를 가져와 DB를 갱신하시겠습니까?")) return;
+                const GITHUB_BASE_URL = "https://hongstar2776-cmyk.github.io/My-Dashboard/"; 
+                const filesToFetch = [
+                    { url: "unit_price_list.csv", table: "unitPriceList", name: "일위대가목록" },
+                    { url: "unit_price_detail.csv", table: "unitPriceDetail", name: "상세내역(일위대가)" }
+                ];
+                let successCount = 0;
+                for (let i = 0; i < filesToFetch.length; i++) {
+                    const file = filesToFetch[i];
+                    setLoadingMessage(`[${i+1}/${filesToFetch.length}] ${file.name} 다운로드/파싱 중...`);
+                    try {
+                        await new Promise((resolve, reject) => {
+                            Papa.parse(GITHUB_BASE_URL + file.url, {
+                                download: true, header: false, skipEmptyLines: true,
+                                complete: async (results) => {
+                                    try {
+                                        await db[file.table].clear();
+                                        const records = [];
+                                        for (let row of results.data) {
+                                            const parsedData = processRowData(file.table, row);
+                                            if (parsedData) records.push(parsedData);
+                                        }
+                                        await db[file.table].bulkAdd(records);
+                                        successCount++;
+                                        resolve();
+                                    } catch (e) { reject(e); }
+                                },
+                                error: (err) => reject(new Error(`다운로드 실패: ${err}`))
+                            });
+                        });
+                    } catch (error) {
+                        console.error(error);
+                        if (!isAuto) alert(`❌ ${file.name} 가져오기 실패.`);
+                        break; 
+                    }
+                }
+                setLoadingMessage('');
+                if (successCount === filesToFetch.length) {
+                    if (!isAuto) alert("✅ GitHub 데이터 연동이 완료되었습니다!");
+                    checkDbStatus();
+                    setActiveTab('search');
+                }
+            };
+
+            const handleFileUpload = async (event, tableName) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                setLoadingMessage(`${file.name} 파싱 및 저장 중...`);
+                Papa.parse(file, {
+                    header: false, skipEmptyLines: true,
+                    complete: async (results) => {
+                        try {
+                            await db[tableName].clear();
+                            const records = [];
+                            for (let row of results.data) {
+                                const parsedData = processRowData(tableName, row);
+                                if (parsedData) records.push(parsedData);
+                            }
+                            await db[tableName].bulkAdd(records);
+                            setLoadingMessage('');
+                            alert(`${file.name} 저장 완료! (${records.length}건)`);
+                            checkDbStatus();
+                        } catch (error) {
+                            console.error(error); alert("저장 중 오류 발생."); setLoadingMessage('');
+                        }
+                    }
+                });
+            };
+
+            const handleSearch = async (e) => {
+                e.preventDefault();
+                if (!keyword.trim() || !isDbReady) return;
+                setIsSearching(true); setSelectedItem(null); setRelatedDetails([]);
+                try {
+                    const searchTerms = keyword.toLowerCase().split(' ').filter(term => term.trim() !== '');
+                    const results = await db.unitPriceList
+                        .filter(item => searchTerms.every(term => item.searchIndex.includes(term)))
+                        .limit(200).toArray();
+                    setSearchResults(results);
+                } catch (error) { console.error("검색 오류:", error); } 
+                finally { setIsSearching(false); }
+            };
+
+            const handleItemDoubleClick = async (item) => {
+                setSelectedItem(item);
+                try {
+                    const details = await db.unitPriceDetail.where('parentCode').equals(item.code).toArray();
+                    setRelatedDetails(details);
+                    setIsDetailModalOpen(true); 
+                } catch (err) { console.error("상세 데이터 조회 실패:", err); }
+            };
+
+            const handleInsert = () => {
+                window.insertToEstimate(selectedItem);
+                setIsDetailModalOpen(false); 
+            };
+
+            return (
+                <div className="h-full flex flex-col bg-slate-50 relative">
+                    {loadingMessage && (
+                        <div className="absolute inset-0 bg-black bg-opacity-60 flex flex-col items-center justify-center z-[100] text-white rounded-lg">
+                            <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-blue-500 mb-4"></div>
+                            <p className="text-base font-bold px-4 text-center">{loadingMessage}</p>
+                        </div>
+                    )}
+                    
+                    <header className="bg-slate-800 text-white p-3 shadow shrink-0 flex justify-between items-center rounded-t-lg">
+                        <div className="flex gap-2">
+                            <button onClick={() => setActiveTab('search')} className={`px-3 py-1.5 text-sm rounded transition-colors ${activeTab === 'search' ? 'bg-blue-600 font-semibold' : 'hover:bg-slate-700'}`}>검색</button>
+                            <button onClick={() => setActiveTab('upload')} className={`px-3 py-1.5 text-sm rounded transition-colors ${activeTab === 'upload' ? 'bg-blue-600 font-semibold' : 'hover:bg-slate-700'}`}>DB설정</button>
+                        </div>
+                    </header>
+
+                    <main className="flex-1 p-2 overflow-y-auto overflow-x-hidden flex flex-col h-full w-full relative">
+                        {activeTab === 'upload' && (
+                            <div className="bg-white p-4 rounded shadow-sm border border-slate-200">
+                                <h2 className="font-bold mb-2 text-slate-800">CSV 데이터 자동 연동</h2>
+                                <button onClick={() => syncFromGithub(false)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded shadow transition mb-4 text-sm">
+                                    GitHub 데이터 가져오기
+                                </button>
+                                <hr className="my-4"/>
+                                <h3 className="font-bold text-sm mb-2 text-slate-700">수동 업로드 (테스트)</h3>
+                                <div className="space-y-3 text-xs">
+                                    <div>
+                                        <p className="font-bold">1. 일위대가목록</p>
+                                        <input type="file" accept=".csv" onChange={(e) => handleFileUpload(e, 'unitPriceList')} className="block w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-blue-50 file:text-blue-700" />
+                                    </div>
+                                    <div>
+                                        <p className="font-bold">2. 상세내역(일위대가)</p>
+                                        <input type="file" accept=".csv" onChange={(e) => handleFileUpload(e, 'unitPriceDetail')} className="block w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-blue-50 file:text-blue-700" />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'search' && (
+                            <div className="flex flex-col h-full gap-2 relative">
+                                <div className="bg-white p-3 rounded shadow-sm border border-slate-200 shrink-0">
+                                    <form onSubmit={handleSearch} className="flex gap-2">
+                                        <input type="text" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="검색어 (띄어쓰기)" className="flex-1 p-2 text-sm border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" disabled={!isDbReady} />
+                                        <button type="submit" disabled={!isDbReady || isSearching} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm shrink-0">
+                                            {isSearching ? '...' : '검색'}
+                                        </button>
+                                    </form>
+                                    {!isDbReady && <p className="mt-1 text-red-500 text-xs">※ 최초 접속 시 데이터 동기화 중...</p>}
+                                </div>
+
+                                <div className="flex flex-col flex-1 bg-white border border-slate-200 rounded shadow-sm min-h-0">
+                                    <div className="p-2 bg-slate-50 border-b flex justify-between items-center shrink-0">
+                                        <h3 className="font-bold text-xs text-slate-700">목록 검색 결과 <span className="font-normal text-slate-500 ml-1">(더블클릭하여 상세 보기 및 추가)</span></h3>
+                                        <span className="text-[10px] bg-blue-100 text-blue-800 px-2 rounded-full">{searchResults.length}건</span>
+                                    </div>
+                                    <div className="flex-1 overflow-auto">
+                                        <table className="text-xs w-full text-left" style={{ tableLayout: 'fixed', width: tableWidth }}>
+                                            <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                                                <tr>
+                                                    <th style={{ width: colWidths.category }} className="px-2 py-1.5 border-r text-center"><div className="truncate">구분</div></th>
+                                                    <th style={{ width: colWidths.name }} className="px-2 py-1.5 border-r"><div className="truncate">품명</div></th>
+                                                    <th style={{ width: colWidths.standard }} className="px-2 py-1.5 border-r"><div className="truncate">규격</div></th>
+                                                    <th style={{ width: colWidths.unit }} className="px-2 py-1.5 border-r text-center"><div className="truncate">단위</div></th>
+                                                    <th style={{ width: colWidths.material }} className="px-2 py-1.5 border-r text-right"><div className="truncate">재료비</div></th>
+                                                    <th style={{ width: colWidths.labor }} className="px-2 py-1.5 border-r text-right"><div className="truncate">노무비</div></th>
+                                                    <th style={{ width: colWidths.expense }} className="px-2 py-1.5 border-r text-right"><div className="truncate">경비</div></th>
+                                                    <th style={{ width: colWidths.total }} className="px-2 py-1.5 text-right"><div className="truncate">합계</div></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {searchResults.map((item, idx) => (
+                                                    <tr key={idx} 
+                                                        ref={selectedItem?.id === item.id ? selectedRowRef : null} 
+                                                        onClick={() => setSelectedItem(item)}
+                                                        onDoubleClick={() => handleItemDoubleClick(item)}
+                                                        className={`border-b border-slate-100 cursor-pointer transition-colors ${selectedItem?.id === item.id ? 'bg-blue-100' : 'hover:bg-blue-50'}`}>
+                                                        <td className="px-2 py-1.5 text-center truncate">{item.category}</td>
+                                                        <td className="px-2 py-1.5 font-bold truncate text-slate-800" title={item.name}>{item.name}</td>
+                                                        <td className="px-2 py-1.5 text-slate-600 truncate" title={item.standard}>{item.standard}</td>
+                                                        <td className="px-2 py-1.5 text-center text-slate-500 truncate">{item.unit}</td>
+                                                        <td className="px-2 py-1.5 text-right text-slate-500 truncate">{formatNumber(item.material)}</td>
+                                                        <td className="px-2 py-1.5 text-right text-slate-500 truncate">{formatNumber(item.labor)}</td>
+                                                        <td className="px-2 py-1.5 text-right text-slate-500 truncate">{formatNumber(item.expense)}</td>
+                                                        <td className="px-2 py-1.5 text-right text-blue-700 font-bold truncate">{formatNumber(item.total)}</td>
+                                                    </tr>
+                                                ))}
+                                                {searchResults.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="8" className="text-center py-10 text-slate-400">검색 결과가 없습니다.</td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {isDetailModalOpen && selectedItem && (
+                            <div className="fixed inset-0 bg-black bg-opacity-40 z-[1000] flex justify-center items-center p-4">
+                                <div className="bg-white w-full max-w-2xl max-h-full rounded-xl shadow-2xl flex flex-col overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+                                    <div className="p-3 border-b flex justify-between items-center bg-slate-800 text-white shrink-0">
+                                        <h3 className="font-bold text-sm">상세 내역 및 추가</h3>
+                                        <button onClick={() => setIsDetailModalOpen(false)} className="text-slate-300 hover:text-white font-bold">&times;</button>
+                                    </div>
+                                    
+                                    <div className="p-4 overflow-y-auto flex-1 bg-slate-50">
+                                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-4 relative">
+                                            <button onClick={handleInsert} className="absolute top-4 right-4 bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 text-sm rounded shadow font-bold flex items-center gap-1 transition-colors">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                                                내역서로 추가
+                                            </button>
+                                            
+                                            <h4 className="text-lg font-bold text-blue-800 pr-32 mb-2">{selectedItem.name}</h4>
+                                            <div className="text-sm text-slate-600 mb-4">
+                                                <span className="mr-3">규격: <span className="font-semibold text-slate-800">{selectedItem.standard}</span></span>
+                                                <span>단위: <span className="font-semibold text-slate-800">{selectedItem.unit}</span></span>
+                                            </div>
+                                            
+                                            <div className="grid grid-cols-4 gap-2 text-center text-sm">
+                                                <div className="bg-slate-50 p-2 rounded border border-slate-100"><div className="text-slate-500 text-xs mb-1">재료비</div><div className="font-mono font-semibold">{formatNumber(selectedItem.material)}</div></div>
+                                                <div className="bg-slate-50 p-2 rounded border border-slate-100"><div className="text-slate-500 text-xs mb-1">노무비</div><div className="font-mono font-semibold">{formatNumber(selectedItem.labor)}</div></div>
+                                                <div className="bg-slate-50 p-2 rounded border border-slate-100"><div className="text-slate-500 text-xs mb-1">경비</div><div className="font-mono font-semibold">{formatNumber(selectedItem.expense)}</div></div>
+                                                <div className="bg-blue-50 border border-blue-200 p-2 rounded"><div className="text-blue-700 text-xs font-bold mb-1">합계</div><div className="font-mono font-bold text-blue-900">{formatNumber(selectedItem.total)}</div></div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm mb-4">
+                                            <h5 className="font-bold text-xs text-slate-700 mb-1 flex items-center gap-1">
+                                                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                                비고
+                                            </h5>
+                                            <div className="text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-100 min-h-[30px] whitespace-pre-wrap">
+                                                {selectedItem.remark || '-'}
+                                            </div>
+                                        </div>
+
+                                        <h5 className="font-bold text-sm text-slate-700 mb-2 flex items-center gap-1">
+                                            <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                                            하위 구성 내역
+                                        </h5>
+                                        {relatedDetails.length > 0 ? (
+                                            <div className="overflow-hidden border border-slate-200 rounded-lg shadow-sm">
+                                                <table className="w-full text-xs text-left">
+                                                    <thead className="bg-slate-100 text-slate-600 border-b">
+                                                        <tr>
+                                                            <th className="px-3 py-2 text-center border-r">품명/규격</th>
+                                                            <th className="px-3 py-2 text-center border-r">수량</th>
+                                                            <th className="px-3 py-2 text-center border-r">재료비</th>
+                                                            <th className="px-3 py-2 text-center border-r">노무비</th>
+                                                            <th className="px-3 py-2 text-center">경비</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="bg-white divide-y divide-slate-100">
+                                                        {relatedDetails.map((det, idx) => (
+                                                            <tr key={idx} className="hover:bg-slate-50">
+                                                                <td className="px-3 py-2 border-r"><div className="font-bold text-slate-800">{det.name}</div><div className="text-slate-500 text-[10px] truncate max-w-[150px]">{det.standard}</div></td>
+                                                                <td className="px-3 py-2 text-center text-blue-600 font-bold border-r">{det.quantity}</td>
+                                                                <td className="px-3 py-2 text-right font-mono border-r">{formatNumber(det.matAmt)}</td>
+                                                                <td className="px-3 py-2 text-right font-mono border-r">{formatNumber(det.labAmt)}</td>
+                                                                <td className="px-3 py-2 text-right font-mono">{formatNumber(det.expAmt)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                    <tfoot className="bg-blue-50 font-bold border-t-2 border-blue-200">
+                                                        <tr>
+                                                            <td className="px-3 py-2 text-center text-blue-900 border-r" colSpan="2">[계]</td>
+                                                            <td className="px-3 py-2 text-right text-blue-900 font-mono border-r">{formatNumber(detailTotals.mat)}</td>
+                                                            <td className="px-3 py-2 text-right text-blue-900 font-mono border-r">{formatNumber(detailTotals.lab)}</td>
+                                                            <td className="px-3 py-2 text-right text-blue-900 font-mono">{formatNumber(detailTotals.exp)}</td>
+                                                        </tr>
+                                                    </tfoot>
+                                                </table>
+                                            </div>
+                                        ) : (
+                                            <div className="p-6 bg-white border border-slate-200 rounded-lg text-center text-slate-400 text-xs">
+                                                연결된 하위 구성 내역이 없습니다.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        }
+        const root = ReactDOM.createRoot(document.getElementById('react-search-root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
