@@ -64,7 +64,6 @@ def export_excel():
         
         wb = openpyxl.load_workbook(io.BytesIO(response.content))
         
-        # 1. 템플릿의 원본 시트들 찾기
         base_est_sheet = wb.worksheets[0]
         base_sum_sheet = None
         for sheet in wb.worksheets:
@@ -72,23 +71,24 @@ def export_excel():
                 base_sum_sheet = sheet
                 break
         
-        # 2. 탭(세트) 개수만큼 시트 복사 및 작성
         for i, tab in enumerate(tabs):
             tab_name = tab.get('name', f'내역서 {i+1}')
             tab_data = tab.get('data', [])
             
-            # 내역서 시트 복사
+            # 내역서 시트 복사 및 설정
             new_est_sheet = wb.copy_worksheet(base_est_sheet)
             new_est_sheet.title = tab_name
+            # [추가] 반복할 행(1~4행) 인쇄 옵션 고정
+            new_est_sheet.print_title_rows = '1:4'
             
-            # 공종별합계표 시트 복사 (원본 템플릿에 존재할 경우에만)
             new_sum_sheet = None
             if base_sum_sheet:
                 new_sum_sheet = wb.copy_worksheet(base_sum_sheet)
                 idx_str = tab_name.split(' ')[-1] if ' ' in tab_name else str(i+1)
                 new_sum_sheet.title = f"공종별합계표 {idx_str}"
+                # [추가] 합계표 시트 인쇄 영역 고정
+                new_sum_sheet.print_area = "B1:N27"
 
-            # 공종번호 그룹화
             groups = {}
             for r in tab_data:
                 cat = r.get('category', '').strip() or '미지정'
@@ -97,10 +97,10 @@ def export_excel():
                 groups[cat].append(r)
 
             current_row = 5 
-            summary_data = [] # 합계표에 쓸 데이터의 좌표를 기억할 리스트
+            summary_data = [] 
             
             for cat, rows in groups.items():
-                cat_ranges = [] # A공종의 실제 데이터가 있는 여러 범위들 [(5,20), (24,43)]
+                cat_ranges = [] 
                 items_to_print = [{'_type': 'header', 'category': cat, 'name': cat}] + rows
                 
                 while items_to_print:
@@ -115,7 +115,7 @@ def export_excel():
                         
                         for r in page_items:
                             write_row(new_est_sheet, current_row, r)
-                            if r.get('_type') != 'header': # 헤더가 아닌 순수 데이터 행의 위치만 기록
+                            if r.get('_type') != 'header': 
                                 if first_data == -1: first_data = current_row
                                 last_data = current_row
                             current_row += 1
@@ -172,13 +172,15 @@ def export_excel():
                         new_est_sheet[f'B{current_row}'] = "[...다음 장으로 이어짐]"
                         current_row += 1
                 
-                # یک 공종의 작성이 끝나면 합계표용 메모리에 범위 저장
                 summary_data.append({
                     'category': cat,
                     'ranges': cat_ranges
                 })
             
-            # 3. 공종별합계표 시트 작성 (A5 셀부터)
+            # [추가] 새 내역서 시트의 인쇄 영역 동적 설정 (4 + 23 * 페이지수와 정확히 일치)
+            last_row = current_row - 1
+            new_est_sheet.print_area = f"B1:N{last_row}"
+            
             if new_sum_sheet:
                 sum_row = 5
                 for s_data in summary_data:
@@ -188,7 +190,6 @@ def export_excel():
                     new_sum_sheet[f'A{sum_row}'] = cat
                     new_sum_sheet[f'B{sum_row}'] = f"[{cat} 소계]"
                     
-                    # 기록해둔 내역서 시트의 범위들을 모아서 '=SUM('내역서 1'!G5:G20, '내역서 1'!G24:G43)' 형태로 변환
                     if ranges:
                         est_sheet_name = new_est_sheet.title
                         g_parts = [f"'{est_sheet_name}'!G{s}:G{e}" for s,e in ranges]
@@ -206,10 +207,16 @@ def export_excel():
                         
                     sum_row += 1
 
-        # 4. 원본 템플릿 시트들은 보이지 않게 숨김 처리
+        # [수정] 원본 템플릿 시트들은 보이지 않게 숨김 처리
         base_est_sheet.sheet_state = 'hidden'
         if base_sum_sheet:
             base_sum_sheet.sheet_state = 'hidden'
+
+        # [추가] 숨김 처리 후, 엑셀을 열었을 때 포커스가 맞춰질 활성 시트(새로 만든 첫번째 시트)를 명시적으로 지정
+        for idx, sheet_name in enumerate(wb.sheetnames):
+            if wb[sheet_name].sheet_state == 'visible':
+                wb.active = idx
+                break
 
         output = io.BytesIO()
         wb.save(output)
