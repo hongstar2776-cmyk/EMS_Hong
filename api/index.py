@@ -39,7 +39,6 @@ def write_row(ws, row_idx, data):
     ws[f'N{row_idx}'] = data.get('note', '')
 
 def write_subtotal(ws, row_idx, start_row, end_row, category):
-    # 내역서 본문 시트에는 기존처럼 "[A 소계]" 형태로 입력 유지
     ws[f'A{row_idx}'] = category
     ws[f'B{row_idx}'] = f"[{category} 소계]"
     
@@ -85,7 +84,6 @@ def export_excel():
                 new_sum_sheet = wb.copy_worksheet(base_sum_sheet)
                 idx_str = tab_name.split(' ')[-1] if ' ' in tab_name else str(i+1)
                 new_sum_sheet.title = f"공종별합계표 {idx_str}"
-                new_sum_sheet.print_area = "B1:N27"
 
             groups = {}
             for r in tab_data:
@@ -178,7 +176,7 @@ def export_excel():
             last_row = current_row - 1
             new_est_sheet.print_area = f"B1:N{last_row}"
             
-            # 3. 공종별합계표 시트 작성
+            # [수정/추가됨] 3. 공종별합계표 시트 작성 로직
             if new_sum_sheet:
                 sum_row = 5
                 for s_data in summary_data:
@@ -186,8 +184,6 @@ def export_excel():
                     ranges = s_data['ranges']
                     
                     new_sum_sheet[f'A{sum_row}'] = cat
-                    
-                    # [수정됨] 공종별합계표 시트에서는 "[A 소계]"가 아닌 "A" 처럼 공종이름 원본만 텍스트로 찍힙니다.
                     new_sum_sheet[f'B{sum_row}'] = cat
                     
                     if ranges:
@@ -206,6 +202,38 @@ def export_excel():
                         new_sum_sheet[f'{col}{sum_row}'].font = Font(bold=True)
                         
                     sum_row += 1
+
+                # ==== [핵심] 동적 합계(SUM) 및 인쇄 영역 계산 로직 ====
+                num_categories = len(summary_data)
+                
+                # 최소 24행(데이터 20줄) 보장, 그 이상이면 늘어남
+                calc_last_data_row = max(24, 4 + num_categories)
+                
+                # 20개를 초과할 경우, 기존 템플릿의 25~27행에 있던 텍스트/수식 찌꺼기를 지워줌
+                if num_categories > 20:
+                    for r_idx in range(25, 28):
+                        for c_idx in ['A', 'B', 'G', 'I', 'K', 'M', 'N']:
+                            new_sum_sheet[f'{c_idx}{r_idx}'] = None
+
+                # 다다음행(+2)에 합계 적기, 다다다음행(+3)이 인쇄 끝나는 빈 행
+                total_row = calc_last_data_row + 2
+                print_end_row = calc_last_data_row + 3
+
+                # [합 계] 텍스트 및 글씨 굵게
+                new_sum_sheet[f'B{total_row}'] = "[합 계]"
+                new_sum_sheet[f'B{total_row}'].font = Font(bold=True)
+
+                # =SUM() 수식 입력
+                new_sum_sheet[f'G{total_row}'] = f"=SUM(G5:G{calc_last_data_row})"
+                new_sum_sheet[f'I{total_row}'] = f"=SUM(I5:I{calc_last_data_row})"
+                new_sum_sheet[f'K{total_row}'] = f"=SUM(K5:K{calc_last_data_row})"
+                new_sum_sheet[f'M{total_row}'] = f"=SUM(M5:M{calc_last_data_row})"
+
+                for col in ['G', 'I', 'K', 'M']:
+                    new_sum_sheet[f'{col}{total_row}'].font = Font(bold=True)
+
+                # 공종별합계표의 인쇄 영역 동적 지정 (B1:N27 또는 그 이상)
+                new_sum_sheet.print_area = f"B1:N{print_end_row}"
 
         base_est_sheet.sheet_state = 'hidden'
         if base_sum_sheet:
