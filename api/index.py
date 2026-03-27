@@ -39,6 +39,7 @@ def write_row(ws, row_idx, data):
     ws[f'N{row_idx}'] = data.get('note', '')
 
 def write_subtotal(ws, row_idx, start_row, end_row, category):
+    # 내역서 본문 시트에는 기존처럼 "[A 소계]" 형태로 입력 유지
     ws[f'A{row_idx}'] = category
     ws[f'B{row_idx}'] = f"[{category} 소계]"
     
@@ -75,10 +76,8 @@ def export_excel():
             tab_name = tab.get('name', f'내역서 {i+1}')
             tab_data = tab.get('data', [])
             
-            # 내역서 시트 복사 및 설정
             new_est_sheet = wb.copy_worksheet(base_est_sheet)
             new_est_sheet.title = tab_name
-            # [추가] 반복할 행(1~4행) 인쇄 옵션 고정
             new_est_sheet.print_title_rows = '1:4'
             
             new_sum_sheet = None
@@ -86,7 +85,6 @@ def export_excel():
                 new_sum_sheet = wb.copy_worksheet(base_sum_sheet)
                 idx_str = tab_name.split(' ')[-1] if ' ' in tab_name else str(i+1)
                 new_sum_sheet.title = f"공종별합계표 {idx_str}"
-                # [추가] 합계표 시트 인쇄 영역 고정
                 new_sum_sheet.print_area = "B1:N27"
 
             groups = {}
@@ -177,10 +175,10 @@ def export_excel():
                     'ranges': cat_ranges
                 })
             
-            # [추가] 새 내역서 시트의 인쇄 영역 동적 설정 (4 + 23 * 페이지수와 정확히 일치)
             last_row = current_row - 1
             new_est_sheet.print_area = f"B1:N{last_row}"
             
+            # 3. 공종별합계표 시트 작성
             if new_sum_sheet:
                 sum_row = 5
                 for s_data in summary_data:
@@ -188,7 +186,9 @@ def export_excel():
                     ranges = s_data['ranges']
                     
                     new_sum_sheet[f'A{sum_row}'] = cat
-                    new_sum_sheet[f'B{sum_row}'] = f"[{cat} 소계]"
+                    
+                    # [수정됨] 공종별합계표 시트에서는 "[A 소계]"가 아닌 "A" 처럼 공종이름 원본만 텍스트로 찍힙니다.
+                    new_sum_sheet[f'B{sum_row}'] = cat
                     
                     if ranges:
                         est_sheet_name = new_est_sheet.title
@@ -207,12 +207,10 @@ def export_excel():
                         
                     sum_row += 1
 
-        # [수정] 원본 템플릿 시트들은 보이지 않게 숨김 처리
         base_est_sheet.sheet_state = 'hidden'
         if base_sum_sheet:
             base_sum_sheet.sheet_state = 'hidden'
 
-        # [추가] 숨김 처리 후, 엑셀을 열었을 때 포커스가 맞춰질 활성 시트(새로 만든 첫번째 시트)를 명시적으로 지정
         for idx, sheet_name in enumerate(wb.sheetnames):
             if wb[sheet_name].sheet_state == 'visible':
                 wb.active = idx
