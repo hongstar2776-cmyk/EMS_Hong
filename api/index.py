@@ -16,7 +16,6 @@ def write_row(ws, row_idx, data):
     ws[f'C{row_idx}'] = data.get('spec') or ''
     ws[f'D{row_idx}'] = data.get('unit') or ''
 
-    # [추가기능 3] 공종명(헤더) 행 하늘색 채우기
     if data.get('_type') == 'header':
         ws[f'A{row_idx}'].font = Font(bold=True)
         fill_blue = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
@@ -52,7 +51,6 @@ def write_subtotal(ws, row_idx, start_row, end_row, category):
     ws[f'K{row_idx}'] = f"=SUM(K{start_row}:K{end_row})"
     ws[f'M{row_idx}'] = f"=SUM(M{start_row}:M{end_row})"
 
-    # [추가기능 3] 공종별 소계 행 옅은 회색 채우기
     ws[f'A{row_idx}'].font = Font(bold=True)
     fill_gray = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
     for col in ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N']:
@@ -65,7 +63,7 @@ def export_excel():
     try:
         payload = request.json
         tabs = payload.get('tabs', [])
-        meta = payload.get('meta', {}) # [추가기능 1] 메타데이터 추출
+        meta = payload.get('meta', {}) 
 
         if not tabs:
             return jsonify({"error": "출력할 데이터가 없습니다."}), 400
@@ -75,7 +73,7 @@ def export_excel():
         
         wb = openpyxl.load_workbook(io.BytesIO(response.content))
         
-        # [추가기능 1] 템플릿 메타데이터 매핑
+        # [완전수정] 템플릿 메타데이터 매핑 및 시트명 정확한(Exact) 텍스트 매칭
         if "견적서겉표지" in wb.sheetnames:
             ws_cover = wb["견적서겉표지"]
             ws_cover['B10'] = meta.get('projectName', '')
@@ -86,27 +84,20 @@ def export_excel():
             ws_gap['P1'] = meta.get('estimateDate', '')
             ws_gap['P2'] = meta.get('clientName', '')
 
-        # 총괄집계표 시트 찾기
-        ws_total_summary = None
-        for sheet_name in wb.sheetnames:
-            if "총괄" in sheet_name or "집계표" in sheet_name:
-                ws_total_summary = wb[sheet_name]
-                break
+        # [완전수정] 총괄집계표 시트 정확한 이름으로 찾기 (or 조건 완전 삭제)
+        ws_total_summary = wb["총괄집계표"] if "총괄집계표" in wb.sheetnames else None
                 
         if ws_total_summary and meta.get('documentTitle'):
             ws_total_summary['P1'] = meta.get('documentTitle').strip()
         
-        base_est_sheet = wb.worksheets[0]
-        base_sum_sheet = None
-        for sheet in wb.worksheets:
-            if "합계표" in sheet.title or "공종별" in sheet.title:
-                base_sum_sheet = sheet
-                break
+        # [완전수정] 원본 내역서 및 합계표 시트 정확한 이름으로 찾기
+        # (혹시라도 템플릿 이름이 틀려질 경우를 대비해 내역서가 없으면 첫번째 시트를 잡게 방어만 해둠)
+        base_est_sheet = wb["내역서"] if "내역서" in wb.sheetnames else wb.worksheets[0]
+        base_sum_sheet = wb["공종별합계표"] if "공종별합계표" in wb.sheetnames else None
         
         for i, tab in enumerate(tabs):
             raw_tab_name = tab.get('name', f'내역서 {i+1}')
             
-            # [추가기능 2] "내역서 건축" -> "건축" 처럼 깔끔하게 파싱
             clean_tab_name = raw_tab_name.replace("내역서 ", "").replace("내역서", "").strip()
             if not clean_tab_name: clean_tab_name = str(i+1)
             
@@ -118,13 +109,13 @@ def export_excel():
             new_est_sheet = wb.copy_worksheet(base_est_sheet)
             new_est_sheet.title = est_sheet_title
             new_est_sheet.print_title_rows = '1:4'
-            new_est_sheet['A1'] = f"내  역  서 ({clean_tab_name})" # A1 동적 기입
+            new_est_sheet['A1'] = f"내  역  서 ({clean_tab_name})"
             
             new_sum_sheet = None
             if base_sum_sheet:
                 new_sum_sheet = wb.copy_worksheet(base_sum_sheet)
                 new_sum_sheet.title = sum_sheet_title
-                new_sum_sheet['A1'] = f" 공 종 별 합 계 표 ({clean_tab_name})" # A1 동적 기입
+                new_sum_sheet['A1'] = f" 공 종 별 합 계 표 ({clean_tab_name})"
 
             groups = {}
             for r in tab_data:
@@ -217,7 +208,7 @@ def export_excel():
             last_row = current_row - 1
             new_est_sheet.print_area = f"B1:N{last_row}"
             
-            total_row_for_summary = 0 # 총괄집계표에 넘겨줄 총합계 행 번호 저장용
+            total_row_for_summary = 0 
             
             if new_sum_sheet:
                 sum_row = 5
@@ -269,17 +260,17 @@ def export_excel():
 
                 new_sum_sheet.print_area = f"B1:N{print_end_row}"
 
-            # [추가기능 2] 총괄집계표에 수식으로 꽂아넣기
             if ws_total_summary and new_sum_sheet and total_row_for_summary > 0:
-                t_row = 5 + i # 5행, 6행, 7행... 차례대로
+                t_row = 5 + i 
                 ws_total_summary[f'B{t_row}'] = raw_tab_name
-                # 시트명에 괄호가 있으므로 홑따옴표 필수: ='공종별합계표(건축)'!G31
-                ws_total_summary[f'G{t_row}'] = f"='{sum_sheet_title}'!G{total_row_for_summary}" # 자재합계
-                ws_total_summary[f'H{t_row}'] = f"='{sum_sheet_title}'!I{total_row_for_summary}" # 노무비합계 (요청하신대로 H열에 I열 맵핑)
-                ws_total_summary[f'K{t_row}'] = f"='{sum_sheet_title}'!K{total_row_for_summary}" # 경비합계
-                ws_total_summary[f'M{t_row}'] = f"='{sum_sheet_title}'!M{total_row_for_summary}" # 합계금액
+                ws_total_summary[f'G{t_row}'] = f"='{sum_sheet_title}'!G{total_row_for_summary}" 
+                ws_total_summary[f'H{t_row}'] = f"='{sum_sheet_title}'!I{total_row_for_summary}" 
+                ws_total_summary[f'K{t_row}'] = f"='{sum_sheet_title}'!K{total_row_for_summary}" 
+                ws_total_summary[f'M{t_row}'] = f"='{sum_sheet_title}'!M{total_row_for_summary}" 
 
-        base_est_sheet.sheet_state = 'hidden'
+        # [수정] 원본 시트 확실하게 숨기기 (존재할 경우에만)
+        if base_est_sheet:
+            base_est_sheet.sheet_state = 'hidden'
         if base_sum_sheet:
             base_sum_sheet.sheet_state = 'hidden'
 
