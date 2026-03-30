@@ -4,7 +4,7 @@ from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 import openpyxl
 from openpyxl.styles import Font, PatternFill
-from datetime import datetime  # [추가기능 2] 날짜 생성을 위한 모듈 추가
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -84,7 +84,6 @@ def export_excel():
             ws_gap['P1'] = meta.get('estimateDate', '')
             ws_gap['P2'] = meta.get('clientName', '')
 
-        # [요청 1 수정] '총괄집계표'가 아닌 '총괄합계표'로 정확히 매칭!
         ws_total_summary = wb["총괄합계표"] if "총괄합계표" in wb.sheetnames else None
                 
         if ws_total_summary and meta.get('documentTitle'):
@@ -258,12 +257,12 @@ def export_excel():
 
                 new_sum_sheet.print_area = f"B1:N{print_end_row}"
 
-            # [요청 1 반영] 총괄합계표 시트에 수식 매핑 완료
             if ws_total_summary and new_sum_sheet and total_row_for_summary > 0:
                 t_row = 5 + i 
                 ws_total_summary[f'B{t_row}'] = raw_tab_name
                 ws_total_summary[f'G{t_row}'] = f"='{sum_sheet_title}'!G{total_row_for_summary}" 
-                ws_total_summary[f'H{t_row}'] = f"='{sum_sheet_title}'!I{total_row_for_summary}" 
+                # ★ [수정됨] H -> I 로 변경 완료
+                ws_total_summary[f'I{t_row}'] = f"='{sum_sheet_title}'!I{total_row_for_summary}" 
                 ws_total_summary[f'K{t_row}'] = f"='{sum_sheet_title}'!K{total_row_for_summary}" 
                 ws_total_summary[f'M{t_row}'] = f"='{sum_sheet_title}'!M{total_row_for_summary}" 
 
@@ -277,22 +276,21 @@ def export_excel():
                 wb.active = idx
                 break
 
-        # [요청 2 반영] 견적서 파일명 동적 생성 
         project_name = meta.get('projectName', '000신축공사')
         estimate_date = meta.get('estimateDate', '000년 00월')
-        today_date = datetime.now().strftime("%Y%m%d") # 현재 날짜 (예: 20260330)
+        today_date = datetime.now().strftime("%Y%m%d") 
         
-        # 파일명 조합: 견적서_공사명_견적일_오늘날짜
         final_filename = f"견적서_{project_name}_{estimate_date}_{today_date}.xlsx"
 
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
 
+        # 백엔드에서는 파일명을 정상적으로 넘겨주고 있습니다.
         return send_file(
             output, 
             as_attachment=True, 
-            download_name=final_filename, # 변경된 파일명 적용
+            download_name=final_filename, 
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
