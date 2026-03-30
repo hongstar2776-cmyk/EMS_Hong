@@ -4,6 +4,7 @@ from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 import openpyxl
 from openpyxl.styles import Font, PatternFill
+from datetime import datetime  # [추가기능 2] 날짜 생성을 위한 모듈 추가
 
 app = Flask(__name__)
 CORS(app)
@@ -73,7 +74,6 @@ def export_excel():
         
         wb = openpyxl.load_workbook(io.BytesIO(response.content))
         
-        # [완전수정] 템플릿 메타데이터 매핑 및 시트명 정확한(Exact) 텍스트 매칭
         if "견적서겉표지" in wb.sheetnames:
             ws_cover = wb["견적서겉표지"]
             ws_cover['B10'] = meta.get('projectName', '')
@@ -84,14 +84,12 @@ def export_excel():
             ws_gap['P1'] = meta.get('estimateDate', '')
             ws_gap['P2'] = meta.get('clientName', '')
 
-        # [완전수정] 총괄집계표 시트 정확한 이름으로 찾기 (or 조건 완전 삭제)
-        ws_total_summary = wb["총괄집계표"] if "총괄집계표" in wb.sheetnames else None
+        # [요청 1 수정] '총괄집계표'가 아닌 '총괄합계표'로 정확히 매칭!
+        ws_total_summary = wb["총괄합계표"] if "총괄합계표" in wb.sheetnames else None
                 
         if ws_total_summary and meta.get('documentTitle'):
             ws_total_summary['P1'] = meta.get('documentTitle').strip()
         
-        # [완전수정] 원본 내역서 및 합계표 시트 정확한 이름으로 찾기
-        # (혹시라도 템플릿 이름이 틀려질 경우를 대비해 내역서가 없으면 첫번째 시트를 잡게 방어만 해둠)
         base_est_sheet = wb["내역서"] if "내역서" in wb.sheetnames else wb.worksheets[0]
         base_sum_sheet = wb["공종별합계표"] if "공종별합계표" in wb.sheetnames else None
         
@@ -260,6 +258,7 @@ def export_excel():
 
                 new_sum_sheet.print_area = f"B1:N{print_end_row}"
 
+            # [요청 1 반영] 총괄합계표 시트에 수식 매핑 완료
             if ws_total_summary and new_sum_sheet and total_row_for_summary > 0:
                 t_row = 5 + i 
                 ws_total_summary[f'B{t_row}'] = raw_tab_name
@@ -268,7 +267,6 @@ def export_excel():
                 ws_total_summary[f'K{t_row}'] = f"='{sum_sheet_title}'!K{total_row_for_summary}" 
                 ws_total_summary[f'M{t_row}'] = f"='{sum_sheet_title}'!M{total_row_for_summary}" 
 
-        # [수정] 원본 시트 확실하게 숨기기 (존재할 경우에만)
         if base_est_sheet:
             base_est_sheet.sheet_state = 'hidden'
         if base_sum_sheet:
@@ -279,6 +277,14 @@ def export_excel():
                 wb.active = idx
                 break
 
+        # [요청 2 반영] 견적서 파일명 동적 생성 
+        project_name = meta.get('projectName', '000신축공사')
+        estimate_date = meta.get('estimateDate', '000년 00월')
+        today_date = datetime.now().strftime("%Y%m%d") # 현재 날짜 (예: 20260330)
+        
+        # 파일명 조합: 견적서_공사명_견적일_오늘날짜
+        final_filename = f"견적서_{project_name}_{estimate_date}_{today_date}.xlsx"
+
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -286,7 +292,7 @@ def export_excel():
         return send_file(
             output, 
             as_attachment=True, 
-            download_name=f"{meta.get('projectName', '내역서')}_출력.xlsx",
+            download_name=final_filename, # 변경된 파일명 적용
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
