@@ -11,20 +11,20 @@ CORS(app)
 TEMPLATE_URL = "https://hongstar2776-cmyk.github.io/My-Dashboard/resource/template_estmate.xlsx"
 
 def write_row(ws, row_idx, data):
-    ws[f'A{row_idx}'] = data.get('category', '')
-    ws[f'B{row_idx}'] = data.get('name', '')
-    ws[f'C{row_idx}'] = data.get('spec', '')
-    ws[f'D{row_idx}'] = data.get('unit', '')
+    ws[f'A{row_idx}'] = data.get('category') or ''
+    ws[f'B{row_idx}'] = data.get('name') or ''
+    ws[f'C{row_idx}'] = data.get('spec') or ''
+    ws[f'D{row_idx}'] = data.get('unit') or ''
 
     if data.get('_type') == 'header':
         for col in ['A', 'B', 'C', 'D']:
             ws[f'{col}{row_idx}'].font = Font(bold=True)
         return
 
-    qty = float(data.get('qty', 0) or 0)
-    mat_up = float(data.get('mat_up', 0) or 0)
-    lab_up = float(data.get('lab_up', 0) or 0)
-    exp_up = float(data.get('exp_up', 0) or 0)
+    qty = float(data.get('qty') or 0)
+    mat_up = float(data.get('mat_up') or 0)
+    lab_up = float(data.get('lab_up') or 0)
+    exp_up = float(data.get('exp_up') or 0)
 
     ws[f'E{row_idx}'] = qty
     ws[f'F{row_idx}'] = mat_up
@@ -36,7 +36,7 @@ def write_row(ws, row_idx, data):
     ws[f'K{row_idx}'] = f"=E{row_idx}*J{row_idx}"
     ws[f'L{row_idx}'] = f"=F{row_idx}+H{row_idx}+J{row_idx}"
     ws[f'M{row_idx}'] = f"=G{row_idx}+I{row_idx}+K{row_idx}"
-    ws[f'N{row_idx}'] = data.get('note', '')
+    ws[f'N{row_idx}'] = data.get('note') or ''
 
 def write_subtotal(ws, row_idx, start_row, end_row, category):
     ws[f'A{row_idx}'] = category
@@ -87,7 +87,8 @@ def export_excel():
 
             groups = {}
             for r in tab_data:
-                cat = r.get('category', '').strip() or '미지정'
+                # ★ [수정된 부분] None 값이 들어와도 에러가 나지 않도록 안전장치 추가
+                cat = str(r.get('category') or '').strip() or '미지정'
                 if cat not in groups:
                     groups[cat] = []
                 groups[cat].append(r)
@@ -176,7 +177,6 @@ def export_excel():
             last_row = current_row - 1
             new_est_sheet.print_area = f"B1:N{last_row}"
             
-            # [수정/추가됨] 3. 공종별합계표 시트 작성 로직
             if new_sum_sheet:
                 sum_row = 5
                 for s_data in summary_data:
@@ -203,27 +203,20 @@ def export_excel():
                         
                     sum_row += 1
 
-                # ==== [핵심] 동적 합계(SUM) 및 인쇄 영역 계산 로직 ====
                 num_categories = len(summary_data)
-                
-                # 최소 24행(데이터 20줄) 보장, 그 이상이면 늘어남
                 calc_last_data_row = max(24, 4 + num_categories)
                 
-                # 20개를 초과할 경우, 기존 템플릿의 25~27행에 있던 텍스트/수식 찌꺼기를 지워줌
                 if num_categories > 20:
                     for r_idx in range(25, 28):
                         for c_idx in ['A', 'B', 'G', 'I', 'K', 'M', 'N']:
                             new_sum_sheet[f'{c_idx}{r_idx}'] = None
 
-                # 다다음행(+2)에 합계 적기, 다다다음행(+3)이 인쇄 끝나는 빈 행
                 total_row = calc_last_data_row + 2
                 print_end_row = calc_last_data_row + 3
 
-                # [합 계] 텍스트 및 글씨 굵게
                 new_sum_sheet[f'B{total_row}'] = "[합 계]"
                 new_sum_sheet[f'B{total_row}'].font = Font(bold=True)
 
-                # =SUM() 수식 입력
                 new_sum_sheet[f'G{total_row}'] = f"=SUM(G5:G{calc_last_data_row})"
                 new_sum_sheet[f'I{total_row}'] = f"=SUM(I5:I{calc_last_data_row})"
                 new_sum_sheet[f'K{total_row}'] = f"=SUM(K5:K{calc_last_data_row})"
@@ -232,7 +225,6 @@ def export_excel():
                 for col in ['G', 'I', 'K', 'M']:
                     new_sum_sheet[f'{col}{total_row}'].font = Font(bold=True)
 
-                # 공종별합계표의 인쇄 영역 동적 지정 (B1:N27 또는 그 이상)
                 new_sum_sheet.print_area = f"B1:N{print_end_row}"
 
         base_est_sheet.sheet_state = 'hidden'
