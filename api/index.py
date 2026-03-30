@@ -3,7 +3,7 @@ import requests
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 import openpyxl
-from openpyxl.styles import Font
+from openpyxl.styles import Font, PatternFill
 
 app = Flask(__name__)
 CORS(app)
@@ -16,9 +16,14 @@ def write_row(ws, row_idx, data):
     ws[f'C{row_idx}'] = data.get('spec') or ''
     ws[f'D{row_idx}'] = data.get('unit') or ''
 
+    # [추가기능 3] 공종명(헤더) 행 하늘색 채우기
     if data.get('_type') == 'header':
-        for col in ['A', 'B', 'C', 'D']:
-            ws[f'{col}{row_idx}'].font = Font(bold=True)
+        ws[f'A{row_idx}'].font = Font(bold=True)
+        fill_blue = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
+        for col in ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N']:
+            cell = ws[f'{col}{row_idx}']
+            cell.font = Font(bold=True)
+            cell.fill = fill_blue
         return
 
     qty = float(data.get('qty') or 0)
@@ -47,14 +52,20 @@ def write_subtotal(ws, row_idx, start_row, end_row, category):
     ws[f'K{row_idx}'] = f"=SUM(K{start_row}:K{end_row})"
     ws[f'M{row_idx}'] = f"=SUM(M{start_row}:M{end_row})"
 
-    for col in ['A', 'B', 'G', 'I', 'K', 'M']:
-        ws[f'{col}{row_idx}'].font = Font(bold=True)
+    # [추가기능 3] 공종별 소계 행 옅은 회색 채우기
+    ws[f'A{row_idx}'].font = Font(bold=True)
+    fill_gray = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    for col in ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N']:
+        cell = ws[f'{col}{row_idx}']
+        cell.font = Font(bold=True)
+        cell.fill = fill_gray
 
 @app.route('/api/export', methods=['POST'])
 def export_excel():
     try:
         payload = request.json
         tabs = payload.get('tabs', [])
+        meta = payload.get('meta', {}) # [추가기능 1] 메타데이터 추출
 
         if not tabs:
             return jsonify({"error": "출력할 데이터가 없습니다."}), 400
@@ -64,6 +75,27 @@ def export_excel():
         
         wb = openpyxl.load_workbook(io.BytesIO(response.content))
         
+        # [추가기능 1] 템플릿 메타데이터 매핑
+        if "견적서겉표지" in wb.sheetnames:
+            ws_cover = wb["견적서겉표지"]
+            ws_cover['B10'] = meta.get('projectName', '')
+            ws_cover['B13'] = meta.get('projectLocation', '')
+            
+        if "갑지" in wb.sheetnames:
+            ws_gap = wb["갑지"]
+            ws_gap['P1'] = meta.get('estimateDate', '')
+            ws_gap['P2'] = meta.get('clientName', '')
+
+        # 총괄집계표 시트 찾기
+        ws_total_summary = None
+        for sheet_name in wb.sheetnames:
+            if "총괄" in sheet_name or "집계표" in sheet_name:
+                ws_total_summary = wb[sheet_name]
+                break
+                
+        if ws_total_summary and meta.get('documentTitle'):
+            ws_total_summary['P1'] = meta.get('documentTitle').strip()
+        
         base_est_sheet = wb.worksheets[0]
         base_sum_sheet = None
         for sheet in wb.worksheets:
@@ -72,22 +104,30 @@ def export_excel():
                 break
         
         for i, tab in enumerate(tabs):
-            tab_name = tab.get('name', f'내역서 {i+1}')
+            raw_tab_name = tab.get('name', f'내역서 {i+1}')
+            
+            # [추가기능 2] "내역서 건축" -> "건축" 처럼 깔끔하게 파싱
+            clean_tab_name = raw_tab_name.replace("내역서 ", "").replace("내역서", "").strip()
+            if not clean_tab_name: clean_tab_name = str(i+1)
+            
+            est_sheet_title = f"내역서({clean_tab_name})"
+            sum_sheet_title = f"공종별합계표({clean_tab_name})"
+            
             tab_data = tab.get('data', [])
             
             new_est_sheet = wb.copy_worksheet(base_est_sheet)
-            new_est_sheet.title = tab_name
+            new_est_sheet.title = est_sheet_title
             new_est_sheet.print_title_rows = '1:4'
+            new_est_sheet['A1'] = f"내  역  서 ({clean_tab_name})" # A1 동적 기입
             
             new_sum_sheet = None
             if base_sum_sheet:
                 new_sum_sheet = wb.copy_worksheet(base_sum_sheet)
-                idx_str = tab_name.split(' ')[-1] if ' ' in tab_name else str(i+1)
-                new_sum_sheet.title = f"공종별합계표 {idx_str}"
+                new_sum_sheet.title = sum_sheet_title
+                new_sum_sheet['A1'] = f" 공 종 별 합 계 표 ({clean_tab_name})" # A1 동적 기입
 
             groups = {}
             for r in tab_data:
-                # ★ [수정된 부분] None 값이 들어와도 에러가 나지 않도록 안전장치 추가
                 cat = str(r.get('category') or '').strip() or '미지정'
                 if cat not in groups:
                     groups[cat] = []
@@ -177,6 +217,8 @@ def export_excel():
             last_row = current_row - 1
             new_est_sheet.print_area = f"B1:N{last_row}"
             
+            total_row_for_summary = 0 # 총괄집계표에 넘겨줄 총합계 행 번호 저장용
+            
             if new_sum_sheet:
                 sum_row = 5
                 for s_data in summary_data:
@@ -211,21 +253,31 @@ def export_excel():
                         for c_idx in ['A', 'B', 'G', 'I', 'K', 'M', 'N']:
                             new_sum_sheet[f'{c_idx}{r_idx}'] = None
 
-                total_row = calc_last_data_row + 2
+                total_row_for_summary = calc_last_data_row + 2
                 print_end_row = calc_last_data_row + 3
 
-                new_sum_sheet[f'B{total_row}'] = "[합 계]"
-                new_sum_sheet[f'B{total_row}'].font = Font(bold=True)
+                new_sum_sheet[f'B{total_row_for_summary}'] = "[합 계]"
+                new_sum_sheet[f'B{total_row_for_summary}'].font = Font(bold=True)
 
-                new_sum_sheet[f'G{total_row}'] = f"=SUM(G5:G{calc_last_data_row})"
-                new_sum_sheet[f'I{total_row}'] = f"=SUM(I5:I{calc_last_data_row})"
-                new_sum_sheet[f'K{total_row}'] = f"=SUM(K5:K{calc_last_data_row})"
-                new_sum_sheet[f'M{total_row}'] = f"=SUM(M5:M{calc_last_data_row})"
+                new_sum_sheet[f'G{total_row_for_summary}'] = f"=SUM(G5:G{calc_last_data_row})"
+                new_sum_sheet[f'I{total_row_for_summary}'] = f"=SUM(I5:I{calc_last_data_row})"
+                new_sum_sheet[f'K{total_row_for_summary}'] = f"=SUM(K5:K{calc_last_data_row})"
+                new_sum_sheet[f'M{total_row_for_summary}'] = f"=SUM(M5:M{calc_last_data_row})"
 
                 for col in ['G', 'I', 'K', 'M']:
-                    new_sum_sheet[f'{col}{total_row}'].font = Font(bold=True)
+                    new_sum_sheet[f'{col}{total_row_for_summary}'].font = Font(bold=True)
 
                 new_sum_sheet.print_area = f"B1:N{print_end_row}"
+
+            # [추가기능 2] 총괄집계표에 수식으로 꽂아넣기
+            if ws_total_summary and new_sum_sheet and total_row_for_summary > 0:
+                t_row = 5 + i # 5행, 6행, 7행... 차례대로
+                ws_total_summary[f'B{t_row}'] = raw_tab_name
+                # 시트명에 괄호가 있으므로 홑따옴표 필수: ='공종별합계표(건축)'!G31
+                ws_total_summary[f'G{t_row}'] = f"='{sum_sheet_title}'!G{total_row_for_summary}" # 자재합계
+                ws_total_summary[f'H{t_row}'] = f"='{sum_sheet_title}'!I{total_row_for_summary}" # 노무비합계 (요청하신대로 H열에 I열 맵핑)
+                ws_total_summary[f'K{t_row}'] = f"='{sum_sheet_title}'!K{total_row_for_summary}" # 경비합계
+                ws_total_summary[f'M{t_row}'] = f"='{sum_sheet_title}'!M{total_row_for_summary}" # 합계금액
 
         base_est_sheet.sheet_state = 'hidden'
         if base_sum_sheet:
@@ -243,7 +295,7 @@ def export_excel():
         return send_file(
             output, 
             as_attachment=True, 
-            download_name="내역서_멀티탭_출력.xlsx",
+            download_name=f"{meta.get('projectName', '내역서')}_출력.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
