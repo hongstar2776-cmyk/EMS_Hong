@@ -43,14 +43,26 @@ def write_row(ws, row_idx, data):
     ws[f'M{row_idx}'] = f"=G{row_idx}+I{row_idx}+K{row_idx}"
     ws[f'N{row_idx}'] = data.get('note') or ''
 
-def write_subtotal(ws, row_idx, start_row, end_row, category):
+# [수정] start_row, end_row 대신 cat_ranges 전체를 받아 다중 범위 SUM을 생성합니다.
+def write_subtotal(ws, row_idx, cat_ranges, category):
     ws[f'A{row_idx}'] = category
     ws[f'B{row_idx}'] = f"[{category} 소계]"
     
-    ws[f'G{row_idx}'] = f"=SUM(G{start_row}:G{end_row})"
-    ws[f'I{row_idx}'] = f"=SUM(I{start_row}:I{end_row})"
-    ws[f'K{row_idx}'] = f"=SUM(K{start_row}:K{end_row})"
-    ws[f'M{row_idx}'] = f"=SUM(M{start_row}:M{end_row})"
+    if cat_ranges:
+        g_parts = [f"G{s}:G{e}" for s,e in cat_ranges]
+        i_parts = [f"I{s}:I{e}" for s,e in cat_ranges]
+        k_parts = [f"K{s}:K{e}" for s,e in cat_ranges]
+        m_parts = [f"M{s}:M{e}" for s,e in cat_ranges]
+
+        ws[f'G{row_idx}'] = f"=SUM({','.join(g_parts)})"
+        ws[f'I{row_idx}'] = f"=SUM({','.join(i_parts)})"
+        ws[f'K{row_idx}'] = f"=SUM({','.join(k_parts)})"
+        ws[f'M{row_idx}'] = f"=SUM({','.join(m_parts)})"
+    else:
+        ws[f'G{row_idx}'] = "=0"
+        ws[f'I{row_idx}'] = "=0"
+        ws[f'K{row_idx}'] = "=0"
+        ws[f'M{row_idx}'] = "=0"
 
     ws[f'A{row_idx}'].font = Font(bold=True)
     fill_gray = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
@@ -103,16 +115,17 @@ def export_excel():
             
             tab_data = tab.get('data', [])
             
-            new_est_sheet = wb.copy_worksheet(base_est_sheet)
-            new_est_sheet.title = est_sheet_title
-            new_est_sheet.print_title_rows = '1:4'
-            new_est_sheet['A1'] = f"내  역  서 ({clean_tab_name})"
-            
+            # [수정] 시트 복사 순서 변경: 공종별합계표를 먼저 복사하여 앞쪽에 배치
             new_sum_sheet = None
             if base_sum_sheet:
                 new_sum_sheet = wb.copy_worksheet(base_sum_sheet)
                 new_sum_sheet.title = sum_sheet_title
                 new_sum_sheet['A1'] = f" 공 종 별 합 계 표 ({clean_tab_name})"
+
+            new_est_sheet = wb.copy_worksheet(base_est_sheet)
+            new_est_sheet.title = est_sheet_title
+            new_est_sheet.print_title_rows = '1:4'
+            new_est_sheet['A1'] = f"내  역  서 ({clean_tab_name})"
 
             groups = {}
             for r in tab_data:
@@ -152,7 +165,8 @@ def export_excel():
                             current_row += 1
                             
                         current_row += 1 
-                        write_subtotal(new_est_sheet, current_row, start_chunk_row, start_chunk_row + 19, cat)
+                        # [수정] 누적된 cat_ranges를 던져주어 1페이지, 2페이지 내용을 모두 더하게 함
+                        write_subtotal(new_est_sheet, current_row, cat_ranges, cat)
                         current_row += 2 
                         
                     elif len(items_to_print) == 21:
@@ -172,7 +186,8 @@ def export_excel():
                         if first_data != -1:
                             cat_ranges.append((first_data, last_data))
                         
-                        write_subtotal(new_est_sheet, current_row, start_chunk_row, start_chunk_row + 20, cat)
+                        # [수정]
+                        write_subtotal(new_est_sheet, current_row, cat_ranges, cat)
                         current_row += 2 
                         
                     else: 
@@ -261,7 +276,6 @@ def export_excel():
                 t_row = 5 + i 
                 ws_total_summary[f'B{t_row}'] = raw_tab_name
                 ws_total_summary[f'G{t_row}'] = f"='{sum_sheet_title}'!G{total_row_for_summary}" 
-                # ★ [수정됨] H -> I 로 변경 완료
                 ws_total_summary[f'I{t_row}'] = f"='{sum_sheet_title}'!I{total_row_for_summary}" 
                 ws_total_summary[f'K{t_row}'] = f"='{sum_sheet_title}'!K{total_row_for_summary}" 
                 ws_total_summary[f'M{t_row}'] = f"='{sum_sheet_title}'!M{total_row_for_summary}" 
@@ -286,7 +300,6 @@ def export_excel():
         wb.save(output)
         output.seek(0)
 
-        # 백엔드에서는 파일명을 정상적으로 넘겨주고 있습니다.
         return send_file(
             output, 
             as_attachment=True, 
