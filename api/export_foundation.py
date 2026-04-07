@@ -10,13 +10,17 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)
 
-# 새로운 물량산출용 엑셀 템플릿 주소
 TEMPLATE_URL = "https://hongstar2776-cmyk.github.io/My-Dashboard/resource/template_foundation.xlsx"
 
-@app.route('/api/export_foundation', methods=['POST'])
+# [수정됨] GET 방식을 추가하여 브라우저 주소창에서도 생존 여부를 확인할 수 있게 만듦
+@app.route('/api/export_foundation', methods=['GET', 'POST'])
 def export_foundation_excel():
+    # 💡 브라우저 주소창에 직접 쳤을 때 (GET 요청) 잘 돌아가고 있는지 확인하는 응답
+    if request.method == 'GET':
+        return "API 서버가 정상적으로 살아있습니다! (Foundation API)", 200
+
     try:
-        # 1. 프론트엔드(HTML)에서 보낸 JSON 데이터 파싱
+        # 프론트엔드(HTML)에서 보낸 JSON 데이터 파싱
         payload = request.json
         project_name = payload.get('projectName', '000신축공사')
         items = payload.get('items', [])
@@ -25,7 +29,7 @@ def export_foundation_excel():
         if not items and not summary:
             return jsonify({"error": "출력할 데이터가 없습니다."}), 400
 
-        # 2. 템플릿 파일 다운로드 및 openpyxl 워크북 로드
+        # 템플릿 파일 다운로드 및 openpyxl 워크북 로드
         response = requests.get(TEMPLATE_URL)
         response.raise_for_status()
         wb = openpyxl.load_workbook(io.BytesIO(response.content))
@@ -44,7 +48,7 @@ def export_foundation_excel():
             # 레미콘 내역 쓰기
             for spec, qty in summary.get('concrete', {}).items():
                 ws_summary[f'B{row_idx}'] = "레미콘"
-                ws_summary[f'C{row_idx}'] = spec  # ex: 25-21-120
+                ws_summary[f'C{row_idx}'] = spec
                 ws_summary[f'D{row_idx}'] = "m3"
                 ws_summary[f'E{row_idx}'] = qty
                 row_idx += 1
@@ -52,7 +56,7 @@ def export_foundation_excel():
             # 거푸집 내역 쓰기
             for spec, qty in summary.get('formwork', {}).items():
                 ws_summary[f'B{row_idx}'] = "거푸집"
-                ws_summary[f'C{row_idx}'] = spec  # ex: 유로폼
+                ws_summary[f'C{row_idx}'] = spec
                 ws_summary[f'D{row_idx}'] = "m2"
                 ws_summary[f'E{row_idx}'] = qty
                 row_idx += 1
@@ -60,7 +64,7 @@ def export_foundation_excel():
             # 철근 내역 쓰기
             for spec, qty in summary.get('rebar', {}).items():
                 ws_summary[f'B{row_idx}'] = "철근"
-                ws_summary[f'C{row_idx}'] = spec  # ex: SD400,HD10
+                ws_summary[f'C{row_idx}'] = spec
                 ws_summary[f'D{row_idx}'] = "kg"
                 ws_summary[f'E{row_idx}'] = qty
                 row_idx += 1
@@ -133,5 +137,3 @@ def export_foundation_excel():
     except Exception as e:
         print("서버 에러 발생:", str(e))
         return jsonify({"error": str(e)}), 500
-
-# Vercel 환경을 위한 핸들러 노출 (app)
