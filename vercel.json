@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/export_foundation", "destination": "/api/export_foundation" },
+    { "source": "/api/export_foundation", "destination": "/api/export_foundation.py" },
     { "source": "/api/(.*)", "destination": "/api/index" }
   ]
 }
