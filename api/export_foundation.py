@@ -12,15 +12,15 @@ CORS(app)
 
 TEMPLATE_URL = "https://hongstar2776-cmyk.github.io/My-Dashboard/resource/template_foundation.xlsx"
 
-# [수정됨] GET 방식을 추가하여 브라우저 주소창에서도 생존 여부를 확인할 수 있게 만듦
-@app.route('/api/export_foundation', methods=['GET', 'POST'])
-def export_foundation_excel():
-    # 💡 브라우저 주소창에 직접 쳤을 때 (GET 요청) 잘 돌아가고 있는지 확인하는 응답
+# 💡 Vercel의 경로 생략 현상을 방어하기 위해 모든 경로('/', '/<path>')를 다 받아내도록 수정
+@app.route('/', defaults={'path': ''}, methods=['GET', 'POST'])
+@app.route('/<path:path>', methods=['GET', 'POST'])
+def export_foundation_excel(path):
+    # GET 방식(주소창 접속) 생존 테스트용
     if request.method == 'GET':
         return "API 서버가 정상적으로 살아있습니다! (Foundation API)", 200
 
     try:
-        # 프론트엔드(HTML)에서 보낸 JSON 데이터 파싱
         payload = request.json
         project_name = payload.get('projectName', '000신축공사')
         items = payload.get('items', [])
@@ -29,7 +29,6 @@ def export_foundation_excel():
         if not items and not summary:
             return jsonify({"error": "출력할 데이터가 없습니다."}), 400
 
-        # 템플릿 파일 다운로드 및 openpyxl 워크북 로드
         response = requests.get(TEMPLATE_URL)
         response.raise_for_status()
         wb = openpyxl.load_workbook(io.BytesIO(response.content))
@@ -40,12 +39,9 @@ def export_foundation_excel():
         if "내역서" in wb.sheetnames:
             ws_summary = wb["내역서"]
             
-            # B2셀에 공사명 입력
             ws_summary['B2'] = project_name
-            
             row_idx = 5
             
-            # 레미콘 내역 쓰기
             for spec, qty in summary.get('concrete', {}).items():
                 ws_summary[f'B{row_idx}'] = "레미콘"
                 ws_summary[f'C{row_idx}'] = spec
@@ -53,7 +49,6 @@ def export_foundation_excel():
                 ws_summary[f'E{row_idx}'] = qty
                 row_idx += 1
                 
-            # 거푸집 내역 쓰기
             for spec, qty in summary.get('formwork', {}).items():
                 ws_summary[f'B{row_idx}'] = "거푸집"
                 ws_summary[f'C{row_idx}'] = spec
@@ -61,7 +56,6 @@ def export_foundation_excel():
                 ws_summary[f'E{row_idx}'] = qty
                 row_idx += 1
                 
-            # 철근 내역 쓰기
             for spec, qty in summary.get('rebar', {}).items():
                 ws_summary[f'B{row_idx}'] = "철근"
                 ws_summary[f'C{row_idx}'] = spec
@@ -74,47 +68,37 @@ def export_foundation_excel():
         # ==========================================
         if "상세산출서" in wb.sheetnames:
             ws_detail = wb["상세산출서"]
-            
             start_row = 2
             
             for item in items:
-                # 1행: 구분 및 부재명
                 ws_detail[f'B{start_row}'] = item.get('type', '')
                 ws_detail[f'C{start_row}'] = item.get('name', '')
                 
-                # 2행: 레미콘 정보
                 ws_detail[f'A{start_row+1}'] = "콘크리트"
                 ws_detail[f'B{start_row+1}'] = item.get('conc', 0)
                 ws_detail[f'C{start_row+1}'] = f"{item.get('fck', '')} MPa"
                 ws_detail[f'D{start_row+1}'] = item.get('formulas', {}).get('conc', '')
                 
-                # 3행: 거푸집 정보
                 ws_detail[f'A{start_row+2}'] = "거푸집"
                 ws_detail[f'B{start_row+2}'] = item.get('form', 0)
                 ws_detail[f'C{start_row+2}'] = item.get('formulas', {}).get('form', '')
                 
-                # 4행: 철근 정보 (총합, 산출식, 상세정보)
                 ws_detail[f'A{start_row+3}'] = "철근"
                 ws_detail[f'B{start_row+3}'] = item.get('rebarTotal', 0)
                 ws_detail[f'C{start_row+3}'] = item.get('formulas', {}).get('rebar', '')
                 ws_detail[f'D{start_row+3}'] = item.get('formulas', {}).get('details', '')
                 
-                # E열부터 우측으로 늘리면서 철근 규격별 수량 기입 (E, F, G, H...)
                 rebar_map = item.get('rebarDetailsMap', {})
-                col_idx = 5  # 5는 E열을 의미함
+                col_idx = 5
                 
                 for k, v in sorted(rebar_map.items()):
                     col_letter = get_column_letter(col_idx)
-                    
-                    # HD10(SD400) 형태를 SD400,HD10 형태로 포맷팅
                     match = re.match(r'(HD\d+)\((SD\d+)\)', k)
                     formatted_key = f"{match.group(2)},{match.group(1)}" if match else k
                     
-                    # 엑셀 셀에 [규격 : 중량kg] 형태로 입력
                     ws_detail[f'{col_letter}{start_row+3}'] = f"{formatted_key} : {round(v, 3)} kg"
                     col_idx += 1
                 
-                # 다음 부재 작성을 위해 행을 5칸 건너뜀 (부재 간 1줄 띄우기)
                 start_row += 5
 
         # ==========================================
