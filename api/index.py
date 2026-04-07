@@ -1,15 +1,19 @@
 import io
 import requests
+import re  # <--- 새로 추가됨 (철근 텍스트 변환용)
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 import openpyxl
 from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter  # <--- 새로 추가됨 (열 알파벳 계산용)
 from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
 
 TEMPLATE_URL = "https://hongstar2776-cmyk.github.io/My-Dashboard/resource/template_estmate.xlsx"
+# <--- 새로 추가됨 (기초/지중보 전용 템플릿)
+FOUNDATION_TEMPLATE_URL = "https://hongstar2776-cmyk.github.io/My-Dashboard/resource/template_foundation.xlsx" 
 
 def write_row(ws, row_idx, data):
     ws[f'A{row_idx}'] = data.get('category') or ''
@@ -43,7 +47,6 @@ def write_row(ws, row_idx, data):
     ws[f'M{row_idx}'] = f"=G{row_idx}+I{row_idx}+K{row_idx}"
     ws[f'N{row_idx}'] = data.get('note') or ''
 
-# [수정] start_row, end_row 대신 cat_ranges 전체를 받아 다중 범위 SUM을 생성합니다.
 def write_subtotal(ws, row_idx, cat_ranges, category):
     ws[f'A{row_idx}'] = category
     ws[f'B{row_idx}'] = f"[{category} 소계]"
@@ -71,6 +74,9 @@ def write_subtotal(ws, row_idx, cat_ranges, category):
         cell.font = Font(bold=True)
         cell.fill = fill_gray
 
+# =========================================================
+# 🔹 기존 페이지에서 잘 쓰고 있는 API (건드리지 않음)
+# =========================================================
 @app.route('/api/export', methods=['POST'])
 def export_excel():
     try:
@@ -115,7 +121,6 @@ def export_excel():
             
             tab_data = tab.get('data', [])
             
-            # [수정] 시트 복사 순서 변경: 공종별합계표를 먼저 복사하여 앞쪽에 배치
             new_sum_sheet = None
             if base_sum_sheet:
                 new_sum_sheet = wb.copy_worksheet(base_sum_sheet)
@@ -165,7 +170,6 @@ def export_excel():
                             current_row += 1
                             
                         current_row += 1 
-                        # [수정] 누적된 cat_ranges를 던져주어 1페이지, 2페이지 내용을 모두 더하게 함
                         write_subtotal(new_est_sheet, current_row, cat_ranges, cat)
                         current_row += 2 
                         
@@ -186,7 +190,6 @@ def export_excel():
                         if first_data != -1:
                             cat_ranges.append((first_data, last_data))
                         
-                        # [수정]
                         write_subtotal(new_est_sheet, current_row, cat_ranges, cat)
                         current_row += 2 
                         
@@ -295,6 +298,112 @@ def export_excel():
         today_date = datetime.now().strftime("%Y%m%d") 
         
         final_filename = f"견적서_{project_name}_{estimate_date}_{today_date}.xlsx"
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        return send_file(
+            output, 
+            as_attachment=True, 
+            download_name=final_filename, 
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    except Exception as e:
+        print("서버 에러 발생:", str(e))
+        return jsonify({"error": str(e)}), 500
+
+
+# =========================================================
+# 🌟 새롭게 추가된 기초/지중보 산출서 API
+# =========================================================
+@app.route('/api/export_foundation', methods=['GET', 'POST'])
+def export_foundation_excel():
+    # GET 방식(주소창 접속) 생존 테스트용
+    if request.method == 'GET':
+        return "Foundation API 정상 작동 중!", 200
+
+    try:
+        payload = request.json
+        project_name = payload.get('projectName', '000신축공사')
+        items = payload.get('items', [])
+        summary = payload.get('summary', {})
+
+        if not items and not summary:
+            return jsonify({"error": "출력할 데이터가 없습니다."}), 400
+
+        # 템플릿 파일 다운로드 및 openpyxl 워크북 로드
+        response = requests.get(FOUNDATION_TEMPLATE_URL)
+        response.raise_for_status()
+        wb = openpyxl.load_workbook(io.BytesIO(response.content))
+
+        # [작업 1] "내역서" 시트 작성
+        if "내역서" in wb.sheetnames:
+            ws_summary = wb["내역서"]
+            ws_summary['B2'] = project_name
+            row_idx = 5
+            
+            for spec, qty in summary.get('concrete', {}).items():
+                ws_summary[f'B{row_idx}'] = "레미콘"
+                ws_summary[f'C{row_idx}'] = spec
+                ws_summary[f'D{row_idx}'] = "m3"
+                ws_summary[f'E{row_idx}'] = qty
+                row_idx += 1
+                
+            for spec, qty in summary.get('formwork', {}).items():
+                ws_summary[f'B{row_idx}'] = "거푸집"
+                ws_summary[f'C{row_idx}'] = spec
+                ws_summary[f'D{row_idx}'] = "m2"
+                ws_summary[f'E{row_idx}'] = qty
+                row_idx += 1
+                
+            for spec, qty in summary.get('rebar', {}).items():
+                ws_summary[f'B{row_idx}'] = "철근"
+                ws_summary[f'C{row_idx}'] = spec
+                ws_summary[f'D{row_idx}'] = "kg"
+                ws_summary[f'E{row_idx}'] = qty
+                row_idx += 1
+
+        # [작업 2] "상세산출서" 시트 작성
+        if "상세산출서" in wb.sheetnames:
+            ws_detail = wb["상세산출서"]
+            start_row = 2
+            
+            for item in items:
+                ws_detail[f'B{start_row}'] = item.get('type', '')
+                ws_detail[f'C{start_row}'] = item.get('name', '')
+                
+                ws_detail[f'A{start_row+1}'] = "콘크리트"
+                ws_detail[f'B{start_row+1}'] = item.get('conc', 0)
+                ws_detail[f'C{start_row+1}'] = f"{item.get('fck', '')} MPa"
+                ws_detail[f'D{start_row+1}'] = item.get('formulas', {}).get('conc', '')
+                
+                ws_detail[f'A{start_row+2}'] = "거푸집"
+                ws_detail[f'B{start_row+2}'] = item.get('form', 0)
+                ws_detail[f'C{start_row+2}'] = item.get('formulas', {}).get('form', '')
+                
+                ws_detail[f'A{start_row+3}'] = "철근"
+                ws_detail[f'B{start_row+3}'] = item.get('rebarTotal', 0)
+                ws_detail[f'C{start_row+3}'] = item.get('formulas', {}).get('rebar', '')
+                ws_detail[f'D{start_row+3}'] = item.get('formulas', {}).get('details', '')
+                
+                rebar_map = item.get('rebarDetailsMap', {})
+                col_idx = 5
+                
+                for k, v in sorted(rebar_map.items()):
+                    col_letter = get_column_letter(col_idx)
+                    match = re.match(r'(HD\d+)\((SD\d+)\)', k)
+                    formatted_key = f"{match.group(2)},{match.group(1)}" if match else k
+                    
+                    ws_detail[f'{col_letter}{start_row+3}'] = f"{formatted_key} : {round(v, 3)} kg"
+                    col_idx += 1
+                
+                start_row += 5
+
+        # [작업 3] 엑셀 파일 저장 및 클라이언트 반환
+        today_date = datetime.now().strftime("%Y%m%d") 
+        final_filename = f"물량산출서_{project_name}_{today_date}.xlsx"
 
         output = io.BytesIO()
         wb.save(output)
