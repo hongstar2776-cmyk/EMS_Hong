@@ -1,18 +1,17 @@
 import io
 import requests
-import re  # <--- 새로 추가됨 (철근 텍스트 변환용)
+import re
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 import openpyxl
-from openpyxl.styles import Font, PatternFill
-from openpyxl.utils import get_column_letter  # <--- 새로 추가됨 (열 알파벳 계산용)
+from openpyxl.styles import Font, PatternFill, Border, Side # <--- Border, Side가 추가됨
+from openpyxl.utils import get_column_letter
 from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
 
 TEMPLATE_URL = "https://hongstar2776-cmyk.github.io/My-Dashboard/resource/template_estmate.xlsx"
-# <--- 새로 추가됨 (기초/지중보 전용 템플릿)
 FOUNDATION_TEMPLATE_URL = "https://hongstar2776-cmyk.github.io/My-Dashboard/resource/template_foundation.xlsx" 
 
 def write_row(ws, row_idx, data):
@@ -75,7 +74,7 @@ def write_subtotal(ws, row_idx, cat_ranges, category):
         cell.fill = fill_gray
 
 # =========================================================
-# 🔹 기존 페이지에서 잘 쓰고 있는 API (건드리지 않음)
+# 🔹 기존 페이지에서 잘 쓰고 있는 API (절대 건드리지 않음)
 # =========================================================
 @app.route('/api/export', methods=['POST'])
 def export_excel():
@@ -316,11 +315,11 @@ def export_excel():
 
 
 # =========================================================
-# 🌟 새롭게 추가된 기초/지중보 산출서 API
+# 🌟 새롭게 추가된 기초/지중보 산출서 API (시작행 3, 굵게, 테두리, 인쇄영역 반영됨)
 # =========================================================
-@app.route('/api/export_foundation', methods=['GET', 'POST'])
-def export_foundation_excel():
-    # GET 방식(주소창 접속) 생존 테스트용
+@app.route('/', defaults={'path': ''}, methods=['GET', 'POST'])
+@app.route('/<path:path>', methods=['GET', 'POST'])
+def export_foundation_excel(path):
     if request.method == 'GET':
         return "Foundation API 정상 작동 중!", 200
 
@@ -333,7 +332,6 @@ def export_foundation_excel():
         if not items and not summary:
             return jsonify({"error": "출력할 데이터가 없습니다."}), 400
 
-        # 템플릿 파일 다운로드 및 openpyxl 워크북 로드
         response = requests.get(FOUNDATION_TEMPLATE_URL)
         response.raise_for_status()
         wb = openpyxl.load_workbook(io.BytesIO(response.content))
@@ -368,21 +366,35 @@ def export_foundation_excel():
         # [작업 2] "상세산출서" 시트 작성
         if "상세산출서" in wb.sheetnames:
             ws_detail = wb["상세산출서"]
-            start_row = 2
+            start_row = 3  # <--- 요청하신 대로 시작 행을 3으로 변경
+            
+            # 얇은 실선 테두리(일반 실선) 정의
+            thin_border = Border(left=Side(style='thin'), 
+                                 right=Side(style='thin'), 
+                                 top=Side(style='thin'), 
+                                 bottom=Side(style='thin'))
             
             for item in items:
+                # 1행: 구분 및 부재명
                 ws_detail[f'B{start_row}'] = item.get('type', '')
                 ws_detail[f'C{start_row}'] = item.get('name', '')
                 
+                # 요청사항: start_row 행의 글꼴 굵게 (A~F열 적용)
+                for col in ['A', 'B', 'C', 'D', 'E', 'F']:
+                    ws_detail[f'{col}{start_row}'].font = Font(bold=True)
+                
+                # 2행: 레미콘 정보
                 ws_detail[f'A{start_row+1}'] = "콘크리트"
                 ws_detail[f'B{start_row+1}'] = item.get('conc', 0)
                 ws_detail[f'C{start_row+1}'] = f"{item.get('fck', '')} MPa"
                 ws_detail[f'D{start_row+1}'] = item.get('formulas', {}).get('conc', '')
                 
+                # 3행: 거푸집 정보
                 ws_detail[f'A{start_row+2}'] = "거푸집"
                 ws_detail[f'B{start_row+2}'] = item.get('form', 0)
                 ws_detail[f'C{start_row+2}'] = item.get('formulas', {}).get('form', '')
                 
+                # 4행: 철근 정보
                 ws_detail[f'A{start_row+3}'] = "철근"
                 ws_detail[f'B{start_row+3}'] = item.get('rebarTotal', 0)
                 ws_detail[f'C{start_row+3}'] = item.get('formulas', {}).get('rebar', '')
@@ -399,9 +411,20 @@ def export_foundation_excel():
                     ws_detail[f'{col_letter}{start_row+3}'] = f"{formatted_key} : {round(v, 3)} kg"
                     col_idx += 1
                 
+                # 요청사항: start_row 부터 start_row+4 까지 5행을 A~F열 일반실선 테두리 그리기
+                for r in range(start_row, start_row + 5):
+                    for col in ['A', 'B', 'C', 'D', 'E', 'F']:
+                        ws_detail[f'{col}{r}'].border = thin_border
+                
+                # 데이터 간 간격을 두기 위해 5행씩 다음으로 넘어감
                 start_row += 5
 
-        # [작업 3] 엑셀 파일 저장 및 클라이언트 반환
+            # 요청사항: 모든 데이터 입력 후 테두리 그어진 곳(A1 ~ F열의 마지막행)까지 인쇄 영역 설정
+            if items:
+                last_bordered_row = start_row - 1
+                ws_detail.print_area = f"A1:F{last_bordered_row}"
+
+        # [작업 3] 엑셀 파일 저장 및 반환
         today_date = datetime.now().strftime("%Y%m%d") 
         final_filename = f"물량산출서_{project_name}_{today_date}.xlsx"
 
